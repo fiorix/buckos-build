@@ -106,7 +106,7 @@ ls -la "$OUT/usr/bin/"
 filegroup(
     name = "buckos-installer",
     srcs = [":buckos-installer-build"],
-    default_target_platform = "root//platforms:linux-target",
+    default_target_platform = "//platforms:linux-target",
     visibility = ["PUBLIC"],
 )
 
@@ -184,6 +184,6 @@ echo "Done"
 filegroup(
     name = "buckos-build-defs",
     srcs = [":buckos-build-defs-gen"],
-    default_target_platform = "root//platforms:linux-target",
+    default_target_platform = "//platforms:linux-target",
     visibility = ["PUBLIC"],
 )

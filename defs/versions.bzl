@@ -290,7 +290,7 @@ def register_package_versions(
     Returns:
         Dict with version resolution helpers
     """
-    package_path = "root//packages/linux/{}/{}".format(category, name)
+    package_path = "//packages/linux/{}/{}".format(category, name)
 
     # Process versions and extract metadata
     version_list = []
@@ -617,7 +617,7 @@ def subslot_dep(package_path, slot, operator = "="):
             subslot_dep("//packages/linux/dev-libs/openssl", "3", "="),
 
             # Don't rebuild on ABI changes (build-time only)
-            subslot_dep("root//packages/linux/dev-util/cmake", "3", "*"),
+            subslot_dep("//packages/linux/dev-util/cmake", "3", "*"),
         ]
     """
     if operator == "=":

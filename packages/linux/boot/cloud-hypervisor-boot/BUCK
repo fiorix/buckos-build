@@ -237,11 +237,12 @@ filegroup(
 )
 
 # All Cloud Hypervisor boot scripts
+# Note: firmware-boot-scripts excluded as they require packages not yet available
 filegroup(
     name = "all",
     srcs = [
         ":direct-boot-scripts",
-        ":firmware-boot-scripts",
+        # ":firmware-boot-scripts",  # Requires edk2-cloudhv which needs iasl/nasm
         ":virtiofs-boot-scripts",
         ":network-boot-scripts",
         ":ch-boot-debug",

@@ -138,6 +138,6 @@ filegroup(
         "//packages/linux/graphics/rendering/wayland:wayland",
         "//packages/linux/desktop/mesa:mesa",
     ],
-    default_target_platform = "root//platforms:linux-target",
+    default_target_platform = "//platforms:linux-target",
     visibility = ["PUBLIC"],
 )

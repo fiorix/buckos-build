@@ -341,7 +341,7 @@ filegroup(
         ":fcitx5-gtk",
         ":fcitx5-qt",
     ],
-    default_target_platform = "root//platforms:linux-target",
+    default_target_platform = "//platforms:linux-target",
     visibility = ["PUBLIC"],
 )
 
@@ -355,6 +355,6 @@ filegroup(
         ":ibus-libpinyin",
         ":ibus-hangul",
     ],
-    default_target_platform = "root//platforms:linux-target",
+    default_target_platform = "//platforms:linux-target",
     visibility = ["PUBLIC"],
 )

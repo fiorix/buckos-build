@@ -700,7 +700,7 @@ initramfs(
     rootfs = ":buckos-rootfs",  # Base system for initramfs tools
     compression = "gz",
     init = "/init",
-    init_script = "root//defs/scripts:live-init",
+    init_script = "//defs/scripts:live-init",
     visibility = ["PUBLIC"],
 )
 
@@ -794,7 +794,7 @@ qemu_boot_script(
 genrule(
     name = "baselayout-aarch64-gen",
     out = "baselayout-aarch64",
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     cmd = """
 mkdir -p $OUT
 # Create FHS directory structure for ARM64
@@ -835,7 +835,7 @@ chmod 700 $OUT/root
 filegroup(
     name = "baselayout-aarch64",
     srcs = [":baselayout-aarch64-gen"],
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -869,7 +869,7 @@ rootfs(
         "//packages/linux/network/iproute2:iproute2",
         "//packages/linux/network/dhcpcd:dhcpcd",
     ],
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -879,7 +879,7 @@ initramfs(
     rootfs = ":buckos-rootfs-aarch64",
     compression = "gz",
     init = "/sbin/init",
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -937,7 +937,7 @@ rootfs(
         # Basic libraries
         "//packages/linux/core/zlib:zlib",
     ],
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -989,7 +989,7 @@ rootfs(
         "//packages/linux/system/apps/findutils:findutils",
         "//packages/linux/dev-tools/build-systems/make:make",
     ],
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -1014,7 +1014,7 @@ stage3_tarball(
 filegroup(
     name = "live-init-scripts-aarch64",
     srcs = [":live-init-scripts-gen"],
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -1056,7 +1056,7 @@ rootfs(
         "//packages/linux/dev-tools/vcs/git:git",
         "//packages/linux/editors/vim:vim",
     ],
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 
@@ -1066,7 +1066,7 @@ initramfs(
     rootfs = ":buckos-rootfs-aarch64",
     compression = "gz",
     init = "/sbin/init",
-    default_target_platform = "root//platforms:linux-aarch64-target",
+    default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
 

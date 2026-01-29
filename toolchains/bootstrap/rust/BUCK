@@ -184,8 +184,8 @@ echo "Version: $($DESTDIR/usr/bin/rustc --version 2>/dev/null || echo 'installed
         "toolchains//bootstrap:bootstrap-toolchain",
     ],
     depend = [
-        "root//packages/linux/core/zlib:zlib",
-        "root//packages/linux/system/libs/crypto/openssl:openssl",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/system/libs/crypto/openssl:openssl",
     ],
     use_bootstrap = False,
     visibility = ["PUBLIC"],

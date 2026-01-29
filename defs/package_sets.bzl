@@ -1221,7 +1221,7 @@ def language_set(
         language_set(
             name = "my-python",
             language = "python-dev",
-            additions = ["root//packages/linux/dev-python:pytest"],
+            additions = ["//packages/linux/dev-python:pytest"],
             description = "Python with testing tools",
         )
     """

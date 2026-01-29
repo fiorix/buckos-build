@@ -97,7 +97,7 @@ echo "LLVM ${PV} installed to /usr/lib/llvm/21"
 
     bdepend = ["toolchains//bootstrap:bootstrap-toolchain"],
     depend = [
-        "root//packages/linux/core/zlib:zlib",
+        "//packages/linux/core/zlib:zlib",
     ],
     use_bootstrap = False,
     visibility = ["PUBLIC"],

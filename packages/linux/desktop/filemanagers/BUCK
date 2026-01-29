@@ -222,6 +222,6 @@ filegroup(
         ":ranger",
         ":lf",
     ],
-    default_target_platform = "root//platforms:linux-target",
+    default_target_platform = "//platforms:linux-target",
     visibility = ["PUBLIC"],
 )

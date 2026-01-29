@@ -2352,17 +2352,12 @@ echo "Disk image created: $OUTPUT"
 
     # Note: This requires root/fakeroot to create the filesystem
     # In practice, this would be run with appropriate privileges
-    cmd = cmd_args([
-        "bash", "-c",
-        "if command -v fakeroot >/dev/null 2>&1; then fakeroot bash {} {} {}; else bash {} {} {}; fi".format(
-            script,
-            rootfs_dir,
-            image_file.as_output(),
-            script,
-            rootfs_dir,
-            image_file.as_output(),
-        ),
-    ])
+    # Build the command properly with cmd_args for Buck2
+    cmd = cmd_args()
+    cmd.add("bash")
+    cmd.add(script)
+    cmd.add(rootfs_dir)
+    cmd.add(image_file.as_output())
 
     ctx.actions.run(
         cmd,
