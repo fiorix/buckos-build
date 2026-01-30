@@ -184,11 +184,13 @@ nobody:x:65534:
 sddm:x:990:
 GROUP
 
+# Password for root and live user is "buckos"
+# Hash generated with: python3 -c "import crypt; print(crypt.crypt('buckos', crypt.mksalt(crypt.METHOD_SHA512)))"
 cat > "$OUT/etc/shadow" << 'SHADOW'
-root::0:0:99999:7:::
-live::19000:0:99999:7:::
-nobody:!:0:0:99999:7:::
-sddm:!:0:0:99999:7:::
+root:$6$S3r4QEYFJnjXqTwW$.Bh.r8p/9uOYytWpTunEfcOYPd3LdC.cyKUTkrRDd/xqnbcMobFJTHR8C3TNROE3I7Vxm07qGjVAl/9scARyY0:19000:0:99999:7:::
+live:$6$S3r4QEYFJnjXqTwW$.Bh.r8p/9uOYytWpTunEfcOYPd3LdC.cyKUTkrRDd/xqnbcMobFJTHR8C3TNROE3I7Vxm07qGjVAl/9scARyY0:19000:0:99999:7:::
+nobody:!:19000:0:99999:7:::
+sddm:!:19000:0:99999:7:::
 SHADOW
 chmod 640 "$OUT/etc/shadow"
 
@@ -232,13 +234,14 @@ fi
 PROFILE
 
 # Create issue (login banner)
+# Note: Backslashes are doubled because getty interprets escape sequences
 cat > "$OUT/etc/issue" << 'ISSUE'
 
   ____             _     ___  ____    _     _
- | __ ) _   _  ___| | __/ _ \/ ___|  | |   (_)_   _____
- |  _ \| | | |/ __| |/ / | | \___ \  | |   | \ \ / / _ \
- | |_) | |_| | (__|   <| |_| |___) | | |___| |\ V /  __/
- |____/ \__,_|\___|_|\_\\___/|____/  |_____|_| \_/ \___|
+ | __ ) _   _  ___| | __/ _ \\/ ___|  | |   (_)_   _____
+ |  _ \\| | | |/ __| |/ / | | \\___ \\  | |   | \\ \\ / / _ \\
+ | |_) | |_| | (__|   <| |_| |___) | | |___| |\\ V /  __/
+ |____/ \\__,_|\\___|_|\\_\\\\___/|____/  |_____|_| \\_/ \\___|
 
  Welcome to BuckOS Linux Live System!
 
@@ -302,6 +305,18 @@ cat > "$OUT/sbin/sway-init" << 'SWAYINIT'
 # Set PATH first - essential for finding commands
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
+# Set up console - try multiple devices for both x86_64 and aarch64
+for console in /dev/console /dev/ttyAMA0 /dev/ttyS0 /dev/tty0 /dev/tty1; do
+    if [ -c "$console" ]; then
+        exec 0<"$console" 1>"$console" 2>"$console"
+        break
+    fi
+done
+
+# Set LD_LIBRARY_PATH for aarch64 compatibility
+# Some packages install to lib64 which is x86_64 convention
+export LD_LIBRARY_PATH=/lib:/usr/lib:/lib64:/usr/lib64
+
 # Mount essential filesystems (skip if already mounted by initramfs)
 mountpoint -q /proc  || mount -t proc proc /proc
 mountpoint -q /sys   || mount -t sysfs sys /sys
@@ -362,8 +377,9 @@ exec /bin/bash --noediting -i
 SWAYINIT
 chmod +x "$OUT/sbin/sway-init"
 
-# Create /sbin/init symlink to sway-init for live boot
-ln -sf sway-init "$OUT/sbin/init"
+# Create /sbin/init symlink to systemd for live boot
+# systemd handles console, getty, and service management properly
+ln -sf ../usr/lib/systemd/systemd "$OUT/sbin/init"
 
 # =============================================================================
 # Systemd configuration for live boot (when systemd is PID 1)
@@ -435,5 +451,58 @@ ln -sf /usr/share/zoneinfo/UTC "$OUT/etc/localtime" 2>/dev/null || true
 # Mask systemd-firstboot so it never runs on live system
 mkdir -p "$OUT/etc/systemd/system"
 ln -sf /dev/null "$OUT/etc/systemd/system/systemd-firstboot.service"
+
+# Mask systemd-vconsole-setup - requires kbd package (setfont/loadkeys)
+# Console works fine with kernel defaults
+ln -sf /dev/null "$OUT/etc/systemd/system/systemd-vconsole-setup.service"
+
+# Set default target to multi-user (console) - sway starts via bash_profile
+# graphical.target requires a display manager which we don't have
+ln -sf /usr/lib/systemd/system/multi-user.target "$OUT/etc/systemd/system/default.target"
+
+# Enable getty on tty1 explicitly
+mkdir -p "$OUT/etc/systemd/system/getty.target.wants"
+ln -sf /usr/lib/systemd/system/getty@.service "$OUT/etc/systemd/system/getty.target.wants/getty@tty1.service"
+
+# Enable serial console for aarch64 (QEMU uses ttyAMA0)
+ln -sf /usr/lib/systemd/system/serial-getty@.service "$OUT/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"
+
+# Create autologin override for serial console too
+mkdir -p "$OUT/etc/systemd/system/serial-getty@ttyAMA0.service.d"
+cat > "$OUT/etc/systemd/system/serial-getty@ttyAMA0.service.d/autologin.conf" << 'SERIALCONF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear %I 115200 linux
+Type=idle
+SERIALCONF
+
+# Create /sbin/ldconfig symlink (systemd expects /sbin/ldconfig but glibc installs to /usr/sbin)
+mkdir -p "$OUT/sbin"
+ln -sf ../usr/sbin/ldconfig "$OUT/sbin/ldconfig"
+
+# Create empty ld.so.cache so ldconfig.service is skipped on live boot
+# (avoids startup delay and potential issues with read-only squashfs)
+touch "$OUT/etc/ld.so.cache"
+
+# Create /etc/securetty to allow root login on console and serial ports
+# Required by pam_securetty.so which is used by login PAM config
+cat > "$OUT/etc/securetty" << 'SECURETTY'
+# Console terminals
+console
+tty1
+tty2
+tty3
+tty4
+tty5
+tty6
+# Serial terminals (for QEMU and real hardware)
+ttyS0
+ttyS1
+ttyAMA0
+ttyAMA1
+hvc0
+SECURETTY
+
+# Note: PAM configs (system-auth, login) are now in the pam package
 
 echo "Live init scripts generated successfully in $OUT"

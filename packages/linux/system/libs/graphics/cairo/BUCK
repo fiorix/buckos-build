@@ -1,7 +1,7 @@
-load("//defs:package_defs.bzl", "download_source", "autotools_package")
+load("//defs:package_defs.bzl", "download_source", "meson_package")
 load("//defs:use_flags.bzl", "set_use_flags")
 
-autotools_package(
+meson_package(
     name = "cairo",
     version = "1.18.2",
     src_uri = "https://www.cairographics.org/releases/cairo-1.18.2.tar.xz",
@@ -10,44 +10,37 @@ autotools_package(
     description = "2D graphics library with support for multiple output devices",
     homepage = "https://www.cairographics.org/",
     license = "LGPL-2.1-or-later",
-    iuse = ["static-libs", "X", "xcb", "png", "svg", "pdf", "glib", "opengl"],
-    use_defaults = ["X", "xcb", "png", "svg", "pdf", "glib"],
-    use_configure = {
-        "static-libs": "-Ddefault_library=static",
-        "-static-libs": "-Ddefault_library=shared",
-        "X": "-Dxlib=enabled",
-        "-X": "-Dxlib=disabled",
-        "xcb": "-Dxcb=enabled",
-        "-xcb": "-Dxcb=disabled",
+    iuse = ["png", "glib"],
+    use_defaults = ["png", "glib"],
+    use_meson = {
         "png": "-Dpng=enabled",
         "-png": "-Dpng=disabled",
-        "svg": "-Dsvg=enabled",
-        "-svg": "-Dsvg=disabled",
-        "pdf": "-Dpdf=enabled",
-        "-pdf": "-Dpdf=disabled",
         "glib": "-Dglib=enabled",
         "-glib": "-Dglib=disabled",
-        "opengl": "-Dgl-backend=gl",
-        "-opengl": "-Dgl-backend=disabled",
     },
     use_deps = {
         "png": ["//packages/linux/system/libs/image/libpng:libpng"],
         "glib": ["//packages/linux/dev-libs/glib:glib"],
-        "opengl": ["//packages/linux/desktop/mesa:mesa"],
     },
-    pre_configure = """
-mkdir -p build
-cd build
-# USE flags: static-libs, X, xcb, png, svg, pdf, glib, opengl
-meson setup .. --prefix=/usr \
-    -Dfreetype=enabled \
-    -Dfontconfig=enabled \
-    $CONFIGURE_ARGS
-""",
+    meson_args = [
+        "--wrap-mode=nodownload",
+        "-Dfreetype=enabled",
+        "-Dfontconfig=enabled",
+        "-Dzlib=enabled",
+        "-Dxlib=disabled",
+        "-Dxcb=disabled",
+        "-Dtee=disabled",
+        "-Dtests=disabled",
+        "-Dspectre=disabled",
+        "-Dsymbol-lookup=disabled",
+    ],
     deps = [
         "//packages/linux/system/security/auth/biometric:pixman",
         "//packages/linux/system/libs/font/freetype:freetype",
         "//packages/linux/system/libs/font/fontconfig:fontconfig",
+        "//packages/linux/system/libs/data/expat:expat",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/system/libs/utility/libffi:libffi",
         "//packages/linux/core/zlib:zlib",
     ],
     visibility = ["PUBLIC"],

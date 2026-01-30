@@ -4,29 +4,36 @@ load("@root//defs:package_defs.bzl", "download_source", "binary_package", "ebuil
 # Rust Bootstrap Toolchain
 # =============================================================================
 # Rust requires a prior Rust compiler to build from source.
-# We use a pre-built Rust 1.88.x as stage0 to bootstrap Rust 1.90.x from source.
+# We use a pre-built Rust 1.90.0 as stage0 to rebuild Rust 1.90.0 from source.
 #
 # Bootstrap chain:
-#   rust-bootstrap (pre-built 1.88.x) -> rust-native (source 1.90.x) -> rust-toolchain
+#   rust-bootstrap (pre-built 1.90.0) -> rust-native (source 1.90.0) -> rust-toolchain
 #
 # Per Rust project policy, bootstrap requires N-1 version
 
 # =============================================================================
-# Stage 0: Pre-built Rust Bootstrap (1.88.0)
+# Stage 0: Pre-built Rust Bootstrap (1.90.0)
 # =============================================================================
-# Rust 1.88.x is used to bootstrap Rust 1.90.x
+# Rust 1.90.0 pre-built is used to rebuild Rust 1.90.0 from source
 
 download_source(
     name = "rust-bootstrap-src",
-    src_uri = "https://static.rust-lang.org/dist/rust-1.88.0-x86_64-unknown-linux-gnu.tar.gz",
-    sha256 = "ad6f0cc845e7fcca17fd451bafd2c04a7bbcb543f8f3ef5bc412fd1fef99ef7b",
+    src_uri = "https://static.rust-lang.org/dist/rust-1.90.0-x86_64-unknown-linux-gnu.tar.gz",
+    sha256 = "e453bae1c68d02fe2eae065c5452d5731308164cd154154c6ee442d2fa590685",
+    signature_required = False,
+)
+
+download_source(
+    name = "rust-bootstrap-src-aarch64",
+    src_uri = "https://static.rust-lang.org/dist/rust-1.90.0-aarch64-unknown-linux-gnu.tar.gz",
+    sha256 = "293f412e3412c3aa3398c78ebbdf898fa08eacad80c85a7332ce1a455504c5fc",
     signature_required = False,
 )
 
 binary_package(
     name = "rust-bootstrap",
     srcs = [":rust-bootstrap-src"],
-    version = "1.88.0",
+    version = "1.90.0",
     description = "Rust bootstrap compiler (stage 0) for building Rust from source",
     homepage = "https://www.rust-lang.org/",
     license = "Apache-2.0 OR MIT",
@@ -39,6 +46,27 @@ binary_package(
         ./install.sh --prefix=$OUT/tools/rust-bootstrap --disable-ldconfig
 
         echo "Rust bootstrap installed to /tools/rust-bootstrap"
+        echo "Version: $($OUT/tools/rust-bootstrap/bin/rustc --version)"
+    """,
+    visibility = ["PUBLIC"],
+)
+
+binary_package(
+    name = "rust-bootstrap-aarch64",
+    srcs = [":rust-bootstrap-src-aarch64"],
+    version = "1.90.0",
+    description = "Rust bootstrap compiler (stage 0) for aarch64",
+    homepage = "https://www.rust-lang.org/",
+    license = "Apache-2.0 OR MIT",
+    install_script = """
+        # Install pre-built Rust to /tools/rust-bootstrap
+        mkdir -p $OUT/tools/rust-bootstrap
+
+        # Run the official Rust installer script
+        cd $SRCS
+        ./install.sh --prefix=$OUT/tools/rust-bootstrap --disable-ldconfig
+
+        echo "Rust bootstrap (aarch64) installed to /tools/rust-bootstrap"
         echo "Version: $($OUT/tools/rust-bootstrap/bin/rustc --version)"
     """,
     visibility = ["PUBLIC"],
@@ -109,10 +137,11 @@ if [ -n "$LLVM_ROOT" ]; then
     echo "LLVM version: $($LLVM_ROOT/bin/llvm-config --version)"
 fi
 
-# Generate config.toml for the Rust build system
-cat > config.toml << EOF
+# Generate bootstrap.toml for the Rust build system
+# Note: Rust 1.90+ uses bootstrap.toml instead of config.toml
+cat > bootstrap.toml << EOF
 # Rust bootstrap configuration
-changelog-seen = 2
+change-id = 144675
 
 [build]
 # Use our bootstrap compiler
@@ -156,7 +185,7 @@ if [ -n "$LLVM_ROOT" ]; then
     echo "System LLVM available at: $LLVM_ROOT"
 fi
 
-echo "config.toml generated for Rust bootstrap build"
+echo "bootstrap.toml generated for Rust bootstrap build"
 ''',
 
     src_compile = '''
@@ -184,8 +213,8 @@ echo "Version: $($DESTDIR/usr/bin/rustc --version 2>/dev/null || echo 'installed
         "toolchains//bootstrap:bootstrap-toolchain",
     ],
     depend = [
-        "//packages/linux/core/zlib:zlib",
-        "//packages/linux/system/libs/crypto/openssl:openssl",
+        "root//packages/linux/core/zlib:zlib",
+        "root//packages/linux/system/libs/crypto/openssl:openssl",
     ],
     use_bootstrap = False,
     visibility = ["PUBLIC"],
@@ -244,7 +273,7 @@ fi
 cat > "$DESTDIR/tools/.rust-toolchain" << 'EOF'
 BuckOS Rust Toolchain
 Rust version: 1.90.0
-Built from source with rust-bootstrap 1.88.0
+Built from source with rust-bootstrap 1.90.0
 EOF
 
 echo "Rust toolchain assembled in /tools"
@@ -255,3 +284,200 @@ echo "Rust toolchain assembled in /tools"
     use_bootstrap = False,
     visibility = ["PUBLIC"],
 )
+
+# =============================================================================
+# ARM64 Rust Native Build from Source (1.90.0)
+# =============================================================================
+# Build Rust from source for aarch64 using the aarch64 bootstrap Rust compiler
+
+ebuild_package(
+    name = "rust-native-aarch64",
+    source = ":rust-native-src",
+    version = "1.90.0",
+    category = "toolchain/bootstrap",
+    slot = "0",
+    description = "Rust programming language for aarch64 - built from source",
+    homepage = "https://www.rust-lang.org/",
+    license = "Apache-2.0 OR MIT",
+    # NOTE: No bootstrap_stage - use host's native compiler for native aarch64 builds
+
+    env = {
+        # Build configuration
+        "RUST_BACKTRACE": "1",
+    },
+
+    src_configure = '''
+# Find rust-bootstrap in dependencies
+RUST_BOOTSTRAP=""
+IFS=':' read -ra DEPS <<< "$DEP_BASE_DIRS"
+for dep in "${DEPS[@]}"; do
+    if [ -x "$dep/tools/rust-bootstrap/bin/rustc" ]; then
+        RUST_BOOTSTRAP="$dep/tools/rust-bootstrap"
+        break
+    fi
+done
+
+if [ -z "$RUST_BOOTSTRAP" ]; then
+    echo "ERROR: Could not find rust-bootstrap in dependencies"
+    echo "Searched in: $DEP_BASE_DIRS"
+    exit 1
+fi
+
+# Find LLVM in dependencies
+LLVM_ROOT=""
+for dep in "${DEPS[@]}"; do
+    if [ -x "$dep/tools/llvm/bin/llvm-config" ]; then
+        LLVM_ROOT="$dep/tools/llvm"
+        break
+    fi
+done
+
+echo "Using RUST_BOOTSTRAP=$RUST_BOOTSTRAP"
+echo "Bootstrap rustc version: $($RUST_BOOTSTRAP/bin/rustc --version)"
+if [ -n "$LLVM_ROOT" ]; then
+    echo "Using LLVM_ROOT=$LLVM_ROOT"
+    echo "LLVM version: $($LLVM_ROOT/bin/llvm-config --version)"
+fi
+
+# Generate bootstrap.toml for the Rust build system (aarch64)
+# Note: Rust 1.90+ uses bootstrap.toml instead of config.toml
+cat > bootstrap.toml << EOF
+# Rust bootstrap configuration for aarch64
+change-id = 144675
+
+[build]
+# Use our bootstrap compiler
+cargo = "$RUST_BOOTSTRAP/bin/cargo"
+rustc = "$RUST_BOOTSTRAP/bin/rustc"
+rustfmt = "$RUST_BOOTSTRAP/bin/rustfmt"
+
+# Build configuration
+docs = false
+compiler-docs = false
+extended = true
+tools = ["cargo", "clippy", "rustfmt", "rustdoc"]
+vendor = true
+python = "$(which python3)"
+target = ["aarch64-unknown-linux-gnu"]
+host = ["aarch64-unknown-linux-gnu"]
+
+[install]
+prefix = "/usr"
+libdir = "lib"
+
+[rust]
+# Optimization level
+optimize = true
+debug = false
+codegen-units-std = 1
+lto = "thin"
+
+# Don't download CI artifacts
+download-rustc = false
+
+[target.aarch64-unknown-linux-gnu]
+# Use bundled LLVM for simpler bootstrap
+# (system LLVM requires exact version match)
+llvm-config = ""
+EOF
+
+# If we have system LLVM, optionally use it
+if [ -n "$LLVM_ROOT" ]; then
+    echo "Note: Using bundled LLVM for bootstrap simplicity"
+    echo "System LLVM available at: $LLVM_ROOT"
+fi
+
+echo "bootstrap.toml generated for Rust aarch64 bootstrap build"
+''',
+
+    src_compile = '''
+# Build Rust using x.py with verbose output
+python3 x.py build --stage 2 -v
+
+echo "Rust (aarch64) build complete"
+''',
+
+    src_install = '''
+# Install Rust using x.py with verbose output
+DESTDIR="$DESTDIR" python3 x.py install -v
+
+# Create symlinks if not already present
+mkdir -p "$DESTDIR/usr/bin"
+
+echo "Rust $PV (aarch64) installed to /usr"
+echo "Version: $($DESTDIR/usr/bin/rustc --version 2>/dev/null || echo 'installed')"
+''',
+
+    bdepend = [
+        ":rust-bootstrap-aarch64",
+        # No bootstrap-toolchain - use host's native compiler for native aarch64 builds
+    ],
+    depend = [],
+    use_bootstrap = False,
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# ARM64 Rust Toolchain Aggregate
+# =============================================================================
+# This target provides Rust for aarch64 package builds.
+# Uses the pre-built Rust directly (same version as what we'd build from source)
+
+ebuild_package(
+    name = "rust-toolchain-aarch64",
+    source = ":rust-native-src",  # Dummy source
+    version = "1.90.0",
+    category = "toolchain/bootstrap",
+    slot = "0",
+    description = "Rust toolchain for BuckOS aarch64 package builds",
+    homepage = "https://www.rust-lang.org/",
+    license = "Apache-2.0 OR MIT",
+
+    src_configure = "true",
+    src_compile = "true",
+
+    src_install = '''
+# Copy Rust from rust-bootstrap-aarch64 to tools directory structure
+# (using pre-built instead of rebuilding from source since it's the same version)
+mkdir -p "$DESTDIR/tools"
+
+IFS=':' read -ra DEP_ARRAY <<< "$DEP_BASE_DIRS"
+for dep_dir in "${DEP_ARRAY[@]}"; do
+    if [ -x "$dep_dir/tools/rust-bootstrap/bin/rustc" ]; then
+        echo "Found Rust at: $dep_dir/tools/rust-bootstrap"
+
+        # Copy the entire rust-bootstrap to tools/rust
+        cp -a "$dep_dir/tools/rust-bootstrap" "$DESTDIR/tools/rust"
+
+        # Create symlinks in tools/bin for PATH
+        mkdir -p "$DESTDIR/tools/bin"
+        for bin in rustc cargo rustfmt clippy-driver cargo-clippy rustdoc; do
+            if [ -f "$DESTDIR/tools/rust/bin/$bin" ]; then
+                ln -sf ../rust/bin/"$bin" "$DESTDIR/tools/bin/$bin"
+            fi
+        done
+        break
+    fi
+done
+
+if [ ! -x "$DESTDIR/tools/rust/bin/rustc" ]; then
+    echo "ERROR: Could not find rust-bootstrap-aarch64 output"
+    exit 1
+fi
+
+# Create marker file
+cat > "$DESTDIR/tools/.rust-toolchain" << 'EOF'
+BuckOS Rust Toolchain (aarch64)
+Rust version: 1.90.0
+Pre-built official Rust distribution
+EOF
+
+echo "Rust toolchain (aarch64) assembled in /tools"
+''',
+
+    bdepend = [":rust-bootstrap-aarch64"],
+    depend = [],
+    use_bootstrap = False,
+    visibility = ["PUBLIC"],
+)
+

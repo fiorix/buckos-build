@@ -3,9 +3,18 @@
 # This runs from the initramfs to find and mount the live filesystem
 
 # Mount essential filesystems
-mount -t devtmpfs devtmpfs /dev
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
+
+# Set up console - try multiple devices for both x86_64 and aarch64
+# ttyAMA0 is for aarch64 QEMU virt machine, ttyS0 for x86_64
+for console in /dev/console /dev/ttyAMA0 /dev/ttyS0 /dev/tty0; do
+    if [ -c "$console" ]; then
+        exec 0<"$console" 1>"$console" 2>"$console"
+        break
+    fi
+done
 
 # Print banner
 echo ""
@@ -20,15 +29,24 @@ echo "Loading kernel modules..."
 KVER=$(ls /lib/modules/ 2>/dev/null | head -1)
 if [ -n "$KVER" ] && [ -d "/lib/modules/$KVER" ]; then
     MODDIR="/lib/modules/$KVER/kernel"
+    # Virtio modules (for QEMU)
+    insmod "$MODDIR/drivers/virtio/virtio.ko" 2>/dev/null || true
+    insmod "$MODDIR/drivers/virtio/virtio_ring.ko" 2>/dev/null || true
+    insmod "$MODDIR/drivers/virtio/virtio_pci.ko" 2>/dev/null || true
+    insmod "$MODDIR/drivers/block/virtio_blk.ko" 2>/dev/null || true
+    insmod "$MODDIR/drivers/scsi/virtio_scsi.ko" 2>/dev/null || true
+    # Block and storage modules
     insmod "$MODDIR/drivers/block/loop.ko" 2>/dev/null || true
     insmod "$MODDIR/drivers/cdrom/cdrom.ko" 2>/dev/null || true
     insmod "$MODDIR/drivers/scsi/sr_mod.ko" 2>/dev/null || true
     insmod "$MODDIR/drivers/usb/storage/usb-storage.ko" 2>/dev/null || true
+    # Filesystem modules
     insmod "$MODDIR/fs/squashfs/squashfs.ko" 2>/dev/null || true
     insmod "$MODDIR/fs/overlayfs/overlay.ko" 2>/dev/null || true
+    insmod "$MODDIR/fs/isofs/isofs.ko" 2>/dev/null || true
+    # ATA modules (for x86_64)
     insmod "$MODDIR/drivers/ata/ata_piix.ko" 2>/dev/null || true
     insmod "$MODDIR/drivers/ata/ata_generic.ko" 2>/dev/null || true
-    insmod "$MODDIR/fs/isofs/isofs.ko" 2>/dev/null || true
 fi
 
 # Wait for CD/USB device to appear

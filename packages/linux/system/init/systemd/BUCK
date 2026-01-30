@@ -33,6 +33,11 @@ FUZZ_STUB
         # Use perl for multi-line regex to delete entire dict blocks
         perl -i -0777 -pe "s/\\{[^{}]*x2dcryptsetup[^{}]*\\},?\\s*//gs" units/meson.build
         perl -i -0777 -pe "s/\\{[^{}]*x2dveritysetup[^{}]*\\},?\\s*//gs" units/meson.build
+
+        # CROSS-COMPILATION FIX: Skip dbus_exporter which tries to run cross-compiled binary
+        # The meson.build has 'if not meson.is_cross_build()' but meson doesn't detect cross-build
+        # because we're not using a meson cross-file. Patch to always skip this step.
+        sed -i "s/if not meson.is_cross_build()/if false  # disabled for cross-build/" meson.build
     """,
     description = "System and service manager",
     homepage = "https://systemd.io/",
@@ -153,6 +158,14 @@ FUZZ_STUB
     meson_args = [
         "-Dsysconfdir=/etc",
         "-Dmode=release",
+        "-Dstrip=false",  # Disable stripping (causes issues with cross-compilation)
+        # Override auto-detected paths - meson finds build-time paths, we need runtime paths
+        "-Dmount-path=/bin/mount",
+        "-Dumount-path=/bin/umount",
+        "-Dsulogin-path=/sbin/sulogin",
+        "-Dkmod-path=/bin/kmod",
+        "-Dloadkeys-path=/usr/bin/loadkeys",
+        "-Dsetfont-path=/usr/bin/setfont",
         # Disable features not needed (feature type: enabled/disabled/auto)
         # Note: features controlled by use_meson are set via use_defaults, NOT here
         "-Dselinux=disabled",
@@ -211,16 +224,42 @@ FUZZ_STUB
         "//packages/linux/lang/python/jinja2:markupsafe",  # Required by jinja2
     ],
     src_install = """
-# Install with meson
+# Use meson install but then verify/fix binaries
 meson install -C build --destdir "$DESTDIR"
+
+# WORKAROUND: meson install truncates binaries on aarch64 cross-compile
+# Manually copy the main binaries to ensure they're not corrupted
+echo "Verifying and fixing systemd binaries..."
+for bin in systemd systemctl journalctl; do
+    SRC="build/$bin"
+    if [ -f "$SRC" ]; then
+        # Find where meson installed it
+        INSTALLED=$(find "$DESTDIR" -name "$bin" -type f 2>/dev/null | head -1)
+        if [ -n "$INSTALLED" ]; then
+            SRC_SIZE=$(stat -c%s "$SRC")
+            INST_SIZE=$(stat -c%s "$INSTALLED")
+            if [ "$SRC_SIZE" != "$INST_SIZE" ]; then
+                echo "  Fixing truncated $bin: $INST_SIZE -> $SRC_SIZE bytes"
+                cp -f "$SRC" "$INSTALLED"
+            else
+                echo "  OK: $bin ($SRC_SIZE bytes)"
+            fi
+        fi
+    fi
+done
 
 # Fix ALL hardcoded build paths in systemd files
 # Meson's find_program() resolves dependencies to their build-time paths
 # (e.g. /data/.../buck-out/.../util-linux/__util-linux__/util-linux/bin/mount)
 # These must be converted to runtime paths (e.g. /bin/mount)
+# IMPORTANT: Only process text files, NOT binaries (sed corrupts binaries)
 echo "Fixing hardcoded build paths in all systemd files..."
 fix_count=0
 find "$DESTDIR" -type f | while read -r f; do
+    # Skip binary files (ELF executables and shared libraries)
+    if file "$f" 2>/dev/null | grep -qE "ELF|executable|shared object"; then
+        continue
+    fi
     if grep -q 'buck-out' "$f" 2>/dev/null; then
         # Pattern: <anything>/buck-out/<anything>/__<target>__/<output-dir>/<actual-path>
         # Replace with: /<actual-path>
@@ -243,7 +282,7 @@ echo "Fixed hardcoded build paths in $fix_count files"
         # cryptsetup/LUKS disabled for now (popt build issue)
         # "//packages/linux/system/filesystem/management/cryptsetup:cryptsetup",
         # "//packages/linux/system/security/cryptsetup:lvm2",  # devmapper
-        "//packages/linux/system/init/eudev:eudev",  # libudev (needed by lvm2/devmapper)
+        # eudev removed - systemd provides its own libudev and udevd
         "//packages/linux/system/libs/crypto/openssl:openssl",
         "//packages/linux/system/libs/crypto/libxcrypt:libxcrypt",
         "//packages/linux/system/libs/ipc/attr:attr",  # libattr needed by libacl

@@ -15,8 +15,108 @@ meson_package(
     description = "Mesa 3D Graphics Library - OpenGL and Vulkan",
     homepage = "https://www.mesa3d.org/",
     license = "MIT",
+    # Patch meson.build to use find_program for wayland-scanner
+    patches = [
+        "patches/0001-use-find_program-for-wayland-scanner.patch",
+    ],
     iuse = ["X", "wayland", "vulkan", "llvm"],
     use_defaults = ["wayland"],
+    # Python mako is needed for code generation
+    # wayland provides wayland-scanner needed during build
+    bdepend = [
+        "//packages/linux/dev-libs/python/mako:mako",
+        "//packages/linux/dev-libs/python/markupsafe:markupsafe",
+    ],
+    # wayland-host provides wayland-scanner for host (exec_bdepend builds for host platform)
+    exec_bdepend = [
+        "//packages/linux/graphics/rendering/wayland:wayland-host",
+    ],
+    # Set PYTHONPATH to find mako from bdepends
+    # Also set up wayland-scanner from exec_bdepend (HOST_TOOL_DIRS)
+    pre_configure = '''
+# Find python packages from bdepends (DEP_BASE_DIRS)
+IFS=':' read -ra DEP_ARRAY <<< "$DEP_BASE_DIRS"
+for dep_dir in "${DEP_ARRAY[@]}"; do
+    if [ -d "$dep_dir/lib/python" ]; then
+        export PYTHONPATH="$dep_dir/lib/python${PYTHONPATH:+:$PYTHONPATH}"
+    fi
+done
+
+# Find wayland-scanner from exec_bdepend (HOST_TOOL_DIRS or _EBUILD_HOST_TOOL_DIRS)
+HOST_DIRS="${HOST_TOOL_DIRS:-$_EBUILD_HOST_TOOL_DIRS}"
+if [ -n "$HOST_DIRS" ]; then
+    IFS=':' read -ra HOST_ARRAY <<< "$HOST_DIRS"
+    for host_dir in "${HOST_ARRAY[@]}"; do
+        if [ -x "$host_dir/usr/bin/wayland-scanner" ]; then
+            WAYLAND_SCANNER="$host_dir/usr/bin/wayland-scanner"
+            SCANNER_DIR="$host_dir/usr/bin"
+            SCANNER_PKG_CONFIG_PATH="$host_dir/usr/lib64/pkgconfig"
+            echo "Found wayland-scanner: $WAYLAND_SCANNER"
+
+            # Create patched pkg-config directory
+            mkdir -p patched_pkgconfig
+            if [ -f "$SCANNER_PKG_CONFIG_PATH/wayland-scanner.pc" ]; then
+                sed "s|^prefix=.*|prefix=$host_dir/usr|" "$SCANNER_PKG_CONFIG_PATH/wayland-scanner.pc" > patched_pkgconfig/wayland-scanner.pc
+                echo "Patched wayland-scanner.pc to use prefix=$host_dir/usr"
+            fi
+
+            # Create meson native file with scanner path
+            cat > native.ini << NEOF
+[binaries]
+wayland-scanner = '$WAYLAND_SCANNER'
+
+[built-in options]
+pkg_config_path = ['$(pwd)/patched_pkgconfig', '$SCANNER_PKG_CONFIG_PATH']
+NEOF
+            echo "Created native.ini with wayland-scanner path"
+            break
+        fi
+    done
+fi
+echo "PYTHONPATH=$PYTHONPATH"
+''',
+    # Use native file for meson to find wayland-scanner
+    src_configure = '''
+rm -rf "${BUILD_DIR:-build}"
+
+# Set PYTHONPATH for mako from bdepends
+IFS=':' read -ra DEP_ARRAY <<< "$DEP_BASE_DIRS"
+for dep_dir in "${DEP_ARRAY[@]}"; do
+    if [ -d "$dep_dir/lib/python" ]; then
+        export PYTHONPATH="$dep_dir/lib/python${PYTHONPATH:+:$PYTHONPATH}"
+    fi
+done
+
+# Find wayland-scanner from exec_bdepend (HOST_TOOL_DIRS or _EBUILD_HOST_TOOL_DIRS)
+HOST_DIRS="${HOST_TOOL_DIRS:-$_EBUILD_HOST_TOOL_DIRS}"
+if [ -n "$HOST_DIRS" ]; then
+    IFS=':' read -ra HOST_ARRAY <<< "$HOST_DIRS"
+    for host_dir in "${HOST_ARRAY[@]}"; do
+        if [ -x "$host_dir/usr/bin/wayland-scanner" ]; then
+            export PATH="$host_dir/usr/bin:$PATH"
+            export PKG_CONFIG_PATH_FOR_BUILD="$(pwd)/patched_pkgconfig:$host_dir/usr/lib64/pkgconfig${PKG_CONFIG_PATH_FOR_BUILD:+:$PKG_CONFIG_PATH_FOR_BUILD}"
+            break
+        fi
+    done
+fi
+
+echo "PYTHONPATH=$PYTHONPATH"
+echo "PKG_CONFIG_PATH_FOR_BUILD=$PKG_CONFIG_PATH_FOR_BUILD"
+
+NATIVE_FILE_ARG=""
+if [ -f native.ini ]; then
+    NATIVE_FILE_ARG="--native-file=native.ini"
+    echo "Using native.ini"
+    cat native.ini
+fi
+
+meson setup "${BUILD_DIR:-build}" \
+    --prefix="${EPREFIX:-/usr}" \
+    --libdir="${LIBDIR:-lib64}" \
+    --buildtype="${MESON_BUILD_TYPE:-release}" \
+    $NATIVE_FILE_ARG \
+    ${MESON_EXTRA_ARGS:-}
+''',
     use_meson = {
         # X11 support: enable GLX and X11 platform
         "X": "-Dplatforms=x11,wayland -Dglx=dri",
@@ -54,6 +154,7 @@ meson_package(
         "-Dosmesa=false",
     ],
     deps = [
+        "//packages/linux/system/init/eudev:eudev",  # Provides libudev
         "//packages/linux/system/libs/input/libinput:libinput",
         "//packages/linux/desktop/libdrm:libdrm",
         "//packages/linux/graphics/rendering/wayland:wayland",

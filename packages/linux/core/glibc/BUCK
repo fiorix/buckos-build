@@ -130,15 +130,23 @@ fi
 echo "Copying glibc from: $CROSS_GLIBC"
 
 # Copy the entire structure - glibc is now built with --prefix=/usr
-# so usr/, lib64/, and etc/ directories exist with correct paths
+# x86_64 uses lib64/, aarch64 uses lib/
 cp -a "$CROSS_GLIBC"/* "$DESTDIR/" 2>/dev/null || true
 
 echo "glibc installation complete"
-ls -la "$DESTDIR/usr/lib64/"*.so* 2>/dev/null | head -10 || ls -la "$DESTDIR/lib64/"*.so* 2>/dev/null | head -10 || true
+# Show installed libraries (check both lib64 for x86_64 and lib for aarch64)
+ls -la "$DESTDIR/usr/lib64/"*.so* 2>/dev/null | head -5 || \
+ls -la "$DESTDIR/lib64/"*.so* 2>/dev/null | head -5 || \
+ls -la "$DESTDIR/usr/lib/"*.so* 2>/dev/null | head -5 || \
+ls -la "$DESTDIR/lib/"*.so* 2>/dev/null | head -5 || true
 """,
 
     # Depend on cross-glibc from bootstrap to get the pre-built glibc
-    bdepend = ["toolchains//bootstrap:cross-glibc"],
+    # Use select() to pick the right cross-glibc for the target architecture
+    bdepend = select({
+        "//platforms:is_aarch64": ["toolchains//bootstrap:cross-glibc-aarch64"],
+        "DEFAULT": ["toolchains//bootstrap:cross-glibc"],
+    }),
     depend = [],
     visibility = ["PUBLIC"],
 )

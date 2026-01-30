@@ -25,6 +25,7 @@ autotools_package(
     },
 
     configure_args = [
+        "--enable-shared",
         "--with-curses",
     ],
 

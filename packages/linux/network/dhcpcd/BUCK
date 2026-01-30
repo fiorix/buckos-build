@@ -48,6 +48,7 @@ autotools_package(
         "--sbindir=/sbin",
         "--sysconfdir=/etc",
         "--rundir=/run",
+        "--without-openssl",  # Use builtin crypto instead of OpenSSL
     ],
 
     description = "DHCP/IPv4LL/IPv6RS/DHCPv6 client",

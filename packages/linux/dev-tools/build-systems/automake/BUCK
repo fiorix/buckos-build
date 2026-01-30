@@ -81,6 +81,33 @@ CACHE_EOF
 ''',
 
     src_compile = '''
+# Create a dummy help2man if not available on the host
+# This avoids cross-compilation issues where help2man tries to run
+# the target binaries to generate documentation
+if ! command -v help2man >/dev/null 2>&1; then
+    mkdir -p "$T/bin"
+    cat > "$T/bin/help2man" << 'HELP2MAN_STUB'
+#!/bin/sh
+# Stub help2man for cross-compilation
+# Just create an empty man page
+output=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o) output="$2"; shift 2 ;;
+        --output=*) output="${1#--output=}"; shift ;;
+        *) shift ;;
+    esac
+done
+if [ -n "$output" ]; then
+    mkdir -p "$(dirname "$output")"
+    echo ".TH AUTOMAKE 1" > "$output"
+fi
+exit 0
+HELP2MAN_STUB
+    chmod +x "$T/bin/help2man"
+    export PATH="$T/bin:$PATH"
+fi
+
 make -j$(nproc)
 ''',
 

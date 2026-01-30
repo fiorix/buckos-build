@@ -46,14 +46,16 @@ mkdir -p $OUT/etc/udev/rules.d
 mkdir -p $OUT/lib/udev/rules.d
 mkdir -p $OUT/run/udev
 
-# Create symlinks for compatibility
-mkdir -p $OUT/sbin
-ln -sf ../lib/udev/udevd $OUT/sbin/udevd 2>/dev/null || true
+# Remove udevadm and udevd binaries - systemd provides its own udevd
+# which supports notify-reload and other systemd-specific features.
+# eudev is only kept for libudev library compatibility.
+rm -f $OUT/usr/bin/udevadm 2>/dev/null || true
+rm -f $OUT/usr/sbin/udevadm 2>/dev/null || true
+rm -f $OUT/usr/sbin/udevd 2>/dev/null || true
+rm -f $OUT/sbin/udevd 2>/dev/null || true
+rm -f $OUT/lib/udev/udevd 2>/dev/null || true
 
-# Initialize hardware database if udevadm exists
-if [ -x "$OUT/bin/udevadm" ]; then
-    echo "Hardware database will be generated at first boot"
-fi
+# Don't create symlinks for udevd - systemd will provide it
 """,
     deps = [
         "//packages/linux/core/util-linux:util-linux",

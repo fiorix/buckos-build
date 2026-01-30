@@ -26,6 +26,33 @@ load("//config:fedora_build_flags.bzl",
 # rather than the host system's libraries.
 # Note: Uses toolchains// cell prefix per buck2 cell configuration
 BOOTSTRAP_TOOLCHAIN = "toolchains//bootstrap:bootstrap-toolchain"
+BOOTSTRAP_TOOLCHAIN_AARCH64 = "toolchains//bootstrap:bootstrap-toolchain-aarch64"
+
+# Detect host architecture from host_info()
+# This helps choose the right toolchain when building on native aarch64
+def _is_host_aarch64():
+    """Check if we're running on an aarch64 host."""
+    return host_info().arch.is_aarch64
+
+# Architecture-aware bootstrap toolchain selection
+def get_bootstrap_toolchain():
+    """Return the appropriate bootstrap toolchain for the target architecture.
+
+    On aarch64 hosts, we prefer the aarch64 toolchain by default since we can't
+    build x86_64 cross-compilers on aarch64.
+    """
+    if _is_host_aarch64():
+        # On aarch64 host, default to aarch64 toolchain
+        return select({
+            "//platforms:is_x86_64": BOOTSTRAP_TOOLCHAIN,
+            "DEFAULT": BOOTSTRAP_TOOLCHAIN_AARCH64,
+        })
+    else:
+        # On x86_64 host, default to x86_64 toolchain
+        return select({
+            "//platforms:is_aarch64": BOOTSTRAP_TOOLCHAIN_AARCH64,
+            "DEFAULT": BOOTSTRAP_TOOLCHAIN,
+        })
 
 # Language toolchain target paths (for Go, Rust, LLVM packages)
 # These are conditionally added based on use_host_toolchain config
@@ -73,10 +100,13 @@ def get_toolchain_dep():
 
     When use_host_toolchain config is enabled, returns None so the bootstrap
     toolchain is not added to the dependency graph and won't be built.
+
+    Uses architecture-aware selection to pick the correct toolchain based on
+    target platform.
     """
     if _should_use_host_toolchain():
         return None
-    return BOOTSTRAP_TOOLCHAIN
+    return get_bootstrap_toolchain()
 
 def _should_use_host_toolchain():
     """
@@ -1065,16 +1095,16 @@ for dep_dir in "$@"; do
     # Store base directory
     DEP_BASE_DIRS="${{DEP_BASE_DIRS:+$DEP_BASE_DIRS:}}$dep_dir"
 
-    # Check all standard include directories
-    for inc_subdir in usr/include include; do
+    # Check all standard include directories (including tools/include for bootstrap toolchain)
+    for inc_subdir in tools/include usr/include include; do
         if [ -d "$dep_dir/$inc_subdir" ]; then
             DEP_CPATH="${{DEP_CPATH:+$DEP_CPATH:}}$dep_dir/$inc_subdir"
             echo "    Found include dir: $dep_dir/$inc_subdir"
         fi
     done
 
-    # Check all standard bin directories
-    for bin_subdir in usr/bin bin usr/sbin sbin; do
+    # Check all standard bin directories (including tools/ for bootstrap toolchain)
+    for bin_subdir in tools/bin usr/bin bin usr/sbin sbin; do
         if [ -d "$dep_dir/$bin_subdir" ]; then
             DEP_PATH="${{DEP_PATH:+$DEP_PATH:}}$dep_dir/$bin_subdir"
             echo "    Found bin dir: $dep_dir/$bin_subdir"
@@ -1083,8 +1113,8 @@ for dep_dir in "$@"; do
         fi
     done
 
-    # Check all standard lib directories
-    for lib_subdir in usr/lib usr/lib64 lib lib64; do
+    # Check all standard lib directories (including tools/lib for bootstrap toolchain)
+    for lib_subdir in tools/lib tools/lib64 usr/lib usr/lib64 lib lib64; do
         if [ -d "$dep_dir/$lib_subdir" ]; then
             DEP_LD_PATH="${{DEP_LD_PATH:+$DEP_LD_PATH:}}$dep_dir/$lib_subdir"
             echo "    Found lib dir: $dep_dir/$lib_subdir"
@@ -1264,6 +1294,21 @@ case "$CXX" in
 esac
 echo "CC=$CC"
 echo "CXX=$CXX"
+
+# Set CBUILD and CHOST to match the toolchain target triplet
+# This ensures configure scripts use the correct triplet rather than auto-detecting
+# from the host gcc (which returns the wrong triplet when using bootstrap toolchain)
+if [ -z "${{CBUILD:-}}" ]; then
+    # Run gcc -dumpmachine AFTER PATH is set to get the bootstrap toolchain's triplet
+    if command -v gcc >/dev/null 2>&1; then
+        export CBUILD="$(gcc -dumpmachine)"
+        echo "CBUILD=$CBUILD (auto-detected from gcc)"
+    fi
+fi
+if [ -z "${{CHOST:-}}" ]; then
+    export CHOST="${{CBUILD:-$(uname -m)-unknown-linux-gnu}}"
+    echo "CHOST=$CHOST"
+fi
 
 # Verify key tools are available
 echo "=== Verifying tools ==="
@@ -1628,7 +1673,8 @@ ROOTFS="$1"
 shift
 
 # Create base directory structure
-mkdir -p "$ROOTFS"/{bin,sbin,lib,lib64,usr/{bin,sbin,lib,lib64},etc,var,tmp,proc,sys,dev,run,root,home}
+# Note: lib64 is created as a symlink below for aarch64 compatibility
+mkdir -p "$ROOTFS"/{bin,sbin,lib,usr/{bin,sbin,lib},etc,var,tmp,proc,sys,dev,run,root,home}
 
 # Copy packages
 for pkg_dir in "$@"; do
@@ -1636,6 +1682,21 @@ for pkg_dir in "$@"; do
         cp -a "$pkg_dir"/* "$ROOTFS"/ 2>/dev/null || true
     fi
 done
+
+# Fix lib64 for aarch64: merge lib64 contents into lib and create symlinks
+# Some packages install to lib64 (x86_64 convention) but aarch64 uses lib
+if [ -d "$ROOTFS/lib64" ] && [ ! -L "$ROOTFS/lib64" ]; then
+    # Move lib64 contents to lib
+    cp -a "$ROOTFS/lib64/"* "$ROOTFS/lib/" 2>/dev/null || true
+    rm -rf "$ROOTFS/lib64"
+    ln -sf lib "$ROOTFS/lib64"
+fi
+if [ -d "$ROOTFS/usr/lib64" ] && [ ! -L "$ROOTFS/usr/lib64" ]; then
+    # Move usr/lib64 contents to usr/lib
+    cp -a "$ROOTFS/usr/lib64/"* "$ROOTFS/usr/lib/" 2>/dev/null || true
+    rm -rf "$ROOTFS/usr/lib64"
+    ln -sf lib "$ROOTFS/usr/lib64"
+fi
 
 # Create compatibility symlinks for /bin -> /usr/bin
 # Many scripts expect common utilities in /bin (especially /bin/sh)
@@ -1721,6 +1782,21 @@ trap "rm -rf $WORK" EXIT
 
 # Copy rootfs to work directory
 cp -a "$ROOTFS"/* "$WORK"/
+
+# Fix aarch64 library paths - merge lib64 into lib and create symlinks
+# aarch64 dynamic linker searches /lib and /usr/lib, not lib64
+if [ -d "$WORK/lib64" ] && [ ! -L "$WORK/lib64" ]; then
+    mkdir -p "$WORK/lib"
+    cp -a "$WORK/lib64/"* "$WORK/lib/" 2>/dev/null || true
+    rm -rf "$WORK/lib64"
+    ln -sf lib "$WORK/lib64"
+fi
+if [ -d "$WORK/usr/lib64" ] && [ ! -L "$WORK/usr/lib64" ]; then
+    mkdir -p "$WORK/usr/lib"
+    cp -a "$WORK/usr/lib64/"* "$WORK/usr/lib/" 2>/dev/null || true
+    rm -rf "$WORK/usr/lib64"
+    ln -sf lib "$WORK/usr/lib64"
+fi
 
 # Install custom init script if provided
 if [ -n "$INIT_SCRIPT" ] && [ -f "$INIT_SCRIPT" ]; then
@@ -2432,7 +2508,35 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         grub_format = "x86_64-efi"
 
     # GRUB configuration for EFI boot
-    grub_cfg = """
+    # Add serial console settings for aarch64 (needed for QEMU headless testing)
+    if arch == "aarch64":
+        grub_cfg = """
+# GRUB configuration for BuckOS ISO (aarch64)
+# Serial console for headless boot (QEMU virt uses ttyAMA0)
+serial --unit=0 --speed=115200
+terminal_input serial console
+terminal_output serial console
+
+set timeout=5
+set default=0
+
+menuentry "BuckOS Linux" {{
+    linux /boot/vmlinuz {kernel_args} init=/init console=ttyAMA0,115200 console=tty0
+    initrd /boot/initramfs.img
+}}
+
+menuentry "BuckOS Linux (recovery mode)" {{
+    linux /boot/vmlinuz {kernel_args} init=/init console=ttyAMA0,115200 console=tty0 single
+    initrd /boot/initramfs.img
+}}
+
+menuentry "BuckOS Linux (serial console only)" {{
+    linux /boot/vmlinuz {kernel_args} init=/init console=ttyAMA0,115200
+    initrd /boot/initramfs.img
+}}
+""".format(kernel_args = kernel_args)
+    else:
+        grub_cfg = """
 # GRUB configuration for BuckOS ISO
 set timeout=5
 set default=0
@@ -2582,12 +2686,20 @@ if command -v xorriso >/dev/null 2>&1; then
         efi)
             # Create EFI boot image
             mkdir -p "$WORK/EFI/BOOT"
-            if command -v grub-mkimage >/dev/null 2>&1; then
-                grub-mkimage -o "$WORK/EFI/BOOT/$EFI_BOOT_FILE" -O $GRUB_FORMAT -p /boot/grub \\
+            GRUB_MKIMAGE=""
+            if command -v grub2-mkimage >/dev/null 2>&1; then
+                GRUB_MKIMAGE="grub2-mkimage"
+            elif command -v grub-mkimage >/dev/null 2>&1; then
+                GRUB_MKIMAGE="grub-mkimage"
+            fi
+            if [ -n "$GRUB_MKIMAGE" ]; then
+                $GRUB_MKIMAGE -o "$WORK/EFI/BOOT/$EFI_BOOT_FILE" -O $GRUB_FORMAT -p /boot/grub \\
                     part_gpt part_msdos fat iso9660 normal boot linux configfile loopback chain \\
                     efifwsetup efi_gop ls search search_label search_fs_uuid search_fs_file \\
-                    gfxterm gfxterm_background gfxterm_menu test all_video loadenv exfat ext2 ntfs \\
-                    2>/dev/null || echo "Warning: grub-mkimage failed"
+                    gfxterm gfxterm_background gfxterm_menu test all_video loadenv exfat ext2 ntfs serial \\
+                    2>/dev/null || echo "Warning: $GRUB_MKIMAGE failed"
+            else
+                echo "Warning: neither grub-mkimage nor grub2-mkimage found"
             fi
 
             # Create EFI boot image file
@@ -2611,12 +2723,20 @@ if command -v xorriso >/dev/null 2>&1; then
             # Hybrid BIOS+EFI boot
             # Create EFI boot image
             mkdir -p "$WORK/EFI/BOOT"
-            if command -v grub-mkimage >/dev/null 2>&1; then
-                grub-mkimage -o "$WORK/EFI/BOOT/$EFI_BOOT_FILE" -O $GRUB_FORMAT -p /boot/grub \\
+            GRUB_MKIMAGE=""
+            if command -v grub2-mkimage >/dev/null 2>&1; then
+                GRUB_MKIMAGE="grub2-mkimage"
+            elif command -v grub-mkimage >/dev/null 2>&1; then
+                GRUB_MKIMAGE="grub-mkimage"
+            fi
+            if [ -n "$GRUB_MKIMAGE" ]; then
+                $GRUB_MKIMAGE -o "$WORK/EFI/BOOT/$EFI_BOOT_FILE" -O $GRUB_FORMAT -p /boot/grub \\
                     part_gpt part_msdos fat iso9660 normal boot linux configfile loopback chain \\
                     efifwsetup efi_gop ls search search_label search_fs_uuid search_fs_file \\
-                    gfxterm gfxterm_background gfxterm_menu test all_video loadenv exfat ext2 ntfs \\
-                    2>/dev/null || echo "Warning: grub-mkimage failed"
+                    gfxterm gfxterm_background gfxterm_menu test all_video loadenv exfat ext2 ntfs serial \\
+                    2>/dev/null || echo "Warning: $GRUB_MKIMAGE failed"
+            else
+                echo "Warning: neither grub-mkimage nor grub2-mkimage found"
             fi
 
             # Create EFI boot image file
@@ -4098,8 +4218,8 @@ def _ebuild_package_impl(ctx: AnalysisContext) -> list[Provider]:
     script_template = '''#!/bin/bash
 set -e
 
-# Ensure basic PATH is set for utilities like readlink
-export PATH="${PATH:-/usr/bin:/bin:/usr/local/bin}"
+# Ensure native system tools are found first in PATH
+export PATH="/usr/bin:/bin:/usr/local/bin:${PATH:-}"
 
 # CRITICAL: Save all original arguments for potential re-execution in mount namespace
 ORIGINAL_ARGS=("$@")
@@ -4693,7 +4813,7 @@ def ebuild_package(
         # Dependencies
         depend: list[str] = [],
         rdepend: list[str] = [],
-        bdepend: list[str] = [],
+        bdepend = [],  # Build-time dependencies (supports select() for arch-specific deps)
         exec_bdepend: list[str] = [],  # Build tools that run on host platform
         pdepend: list[str] = [],
         # Build phases
@@ -4741,11 +4861,31 @@ def ebuild_package(
     # Add bootstrap toolchain by default to ensure linking against BuckOS glibc
     use_bootstrap = kwargs.pop("use_bootstrap", True)
     use_host_toolchain = _should_use_host_toolchain()
-    bdepend = list(bdepend)  # Make mutable copy
+
+    # Handle bdepend - it might be a select() or a list
+    # If it's a select, we can't modify it, so wrap it in a list concatenation
+    is_bdepend_select = type(bdepend) == "selector"
+    if is_bdepend_select:
+        # bdepend is already a select - use it directly, add toolchain separately
+        final_bdepend = bdepend
+    else:
+        final_bdepend = list(bdepend)  # Make mutable copy
+
     bootstrap_stage = kwargs.get("bootstrap_stage", "")
-    if use_bootstrap and not use_host_toolchain and not bootstrap_stage and name != "bootstrap-toolchain":
-        if BOOTSTRAP_TOOLCHAIN not in bdepend:
-            bdepend.append(BOOTSTRAP_TOOLCHAIN)
+    if use_bootstrap and not use_host_toolchain and not bootstrap_stage and name != "bootstrap-toolchain" and name != "bootstrap-toolchain-aarch64":
+        # Use select to pick the right toolchain based on target architecture
+        if is_bdepend_select:
+            # Can't check membership in a select, so just add the toolchain select
+            # The select will resolve to the right deps at configuration time
+            final_bdepend = final_bdepend + [select({
+                "//platforms:is_aarch64": BOOTSTRAP_TOOLCHAIN_AARCH64,
+                "DEFAULT": BOOTSTRAP_TOOLCHAIN,
+            })]
+        elif BOOTSTRAP_TOOLCHAIN not in final_bdepend and BOOTSTRAP_TOOLCHAIN_AARCH64 not in final_bdepend:
+            final_bdepend.append(select({
+                "//platforms:is_aarch64": BOOTSTRAP_TOOLCHAIN_AARCH64,
+                "DEFAULT": BOOTSTRAP_TOOLCHAIN,
+            }))
 
     # Calculate effective USE flags if USE flags are specified
     effective_use = []
@@ -4794,7 +4934,7 @@ def ebuild_package(
         use_bootstrap = use_bootstrap,
         depend = resolved_depend,
         rdepend = rdepend,
-        bdepend = bdepend,
+        bdepend = final_bdepend,
         exec_bdepend = exec_bdepend,
         pdepend = pdepend,
         src_unpack = src_unpack,
@@ -5233,6 +5373,22 @@ def meson_package(
     # Combine with eclass phases
     src_prepare = custom_src_prepare if custom_src_prepare else eclass_config.get("src_prepare", "")
 
+    # Export patch files and create references
+    patch_refs = []
+    for i, patch in enumerate(patches):
+        if patch.startswith(":") or patch.startswith("//"):
+            # Already a target reference
+            patch_refs.append(patch)
+        else:
+            # Create an export_file target for this patch
+            patch_target_name = "{}-patch-{}".format(name, i)
+            native.export_file(
+                name = patch_target_name,
+                src = patch,
+                visibility = [],  # Private to this package
+            )
+            patch_refs.append(":" + patch_target_name)
+
     # Filter kwargs to only include parameters that ebuild_package_rule accepts
     src_install = custom_src_install if custom_src_install else eclass_config["src_install"]
     filtered_kwargs, src_install = filter_ebuild_kwargs(kwargs, src_install)
@@ -5242,6 +5398,7 @@ def meson_package(
         source = src_target,
         version = version,
         package_type = "meson",
+        patches = patch_refs,
         src_prepare = src_prepare,
         src_configure = custom_src_configure if custom_src_configure else eclass_config["src_configure"],
         src_compile = custom_src_compile if custom_src_compile else eclass_config["src_compile"],
@@ -5425,8 +5582,13 @@ def autotools_package(
     # Add bootstrap toolchain by default to ensure linking against BuckOS glibc
     # Skip if this package is part of the bootstrap toolchain itself or if using host toolchain
     use_bootstrap = kwargs.pop("use_bootstrap", True)
-    if use_bootstrap and not use_host_toolchain and BOOTSTRAP_TOOLCHAIN not in bdepend:
-        bdepend.append(BOOTSTRAP_TOOLCHAIN)
+    if use_bootstrap and not use_host_toolchain:
+        # Use select to pick the right toolchain based on target architecture
+        if BOOTSTRAP_TOOLCHAIN not in bdepend and BOOTSTRAP_TOOLCHAIN_AARCH64 not in bdepend:
+            bdepend.append(select({
+                "//platforms:is_aarch64": BOOTSTRAP_TOOLCHAIN_AARCH64,
+                "DEFAULT": BOOTSTRAP_TOOLCHAIN,
+            }))
 
     # Get pre_configure and post_install if provided
     pre_configure = kwargs.pop("pre_configure", "")
@@ -5659,8 +5821,13 @@ def make_package(
     # Skip if using host toolchain
     use_bootstrap = kwargs.pop("use_bootstrap", True)
     use_host_toolchain = _should_use_host_toolchain()
-    if use_bootstrap and not use_host_toolchain and BOOTSTRAP_TOOLCHAIN not in bdepend:
-        bdepend.append(BOOTSTRAP_TOOLCHAIN)
+    if use_bootstrap and not use_host_toolchain:
+        # Use select to pick the right toolchain based on target architecture
+        if BOOTSTRAP_TOOLCHAIN not in bdepend and BOOTSTRAP_TOOLCHAIN_AARCH64 not in bdepend:
+            bdepend.append(select({
+                "//platforms:is_aarch64": BOOTSTRAP_TOOLCHAIN_AARCH64,
+                "DEFAULT": BOOTSTRAP_TOOLCHAIN,
+            }))
 
     # Default src_compile if not provided
     if src_compile == None:

@@ -59,8 +59,8 @@ read -ra HOST_TOOL_DIRS_ARRAY <<< "$_EBUILD_HOST_TOOL_DIRS"
 # Package variables are already exported by wrapper
 export PACKAGE_NAME="$PN"
 
-# Bootstrap configuration
-BUCKOS_TARGET="x86_64-buckos-linux-gnu"
+# Bootstrap configuration - will be auto-detected from cross-compiler
+BUCKOS_TARGET=""
 
 # Build HOST_TOOL_PATH from host tool directories (exec_bdepend)
 # These are tools built for the HOST platform that need to run during the build
@@ -113,6 +113,15 @@ for dep_dir in "${DEP_DIRS_ARRAY[@]}"; do
             if [ -z "$BOOTSTRAP_SYSROOT" ]; then
                 BOOTSTRAP_SYSROOT="$dep_dir/tools"
             fi
+            # Auto-detect BUCKOS_TARGET from cross-compiler name
+            if [ -z "$BUCKOS_TARGET" ]; then
+                for compiler in "$dep_dir/tools/bin/"*-buckos-linux-gnu-gcc; do
+                    if [ -f "$compiler" ]; then
+                        BUCKOS_TARGET=$(basename "$compiler" | sed 's/-gcc$//')
+                        break
+                    fi
+                done
+            fi
         else
             # For non-aggregated toolchain packages (cross-gcc-pass2, cross-binutils),
             # check if they have the cross-compiler and add to PATH
@@ -122,6 +131,10 @@ for dep_dir in "${DEP_DIRS_ARRAY[@]}"; do
                     if [ -z "$BOOTSTRAP_SYSROOT" ]; then
                         BOOTSTRAP_SYSROOT="$dep_dir/tools"
                     fi
+                    # Auto-detect BUCKOS_TARGET from cross-compiler name
+                    if [ -z "$BUCKOS_TARGET" ]; then
+                        BUCKOS_TARGET=$(basename "$compiler" | sed 's/-gcc$//')
+                    fi
                     break
                 fi
             done
@@ -130,6 +143,10 @@ for dep_dir in "${DEP_DIRS_ARRAY[@]}"; do
                 for linker in "$dep_dir/tools/bin/"*-buckos-linux-gnu-ld; do
                     if [ -f "$linker" ]; then
                         TOOLCHAIN_PATH="${TOOLCHAIN_PATH:+$TOOLCHAIN_PATH:}$dep_dir/tools/bin"
+                        # Auto-detect BUCKOS_TARGET from linker name
+                        if [ -z "$BUCKOS_TARGET" ]; then
+                            BUCKOS_TARGET=$(basename "$linker" | sed 's/-ld$//')
+                        fi
                         break
                     fi
                 done
@@ -172,12 +189,28 @@ done
 export TOOLCHAIN_INCLUDE  # For --with-headers etc
 export TOOLCHAIN_ROOT     # For copying toolchain files
 
-# For regular packages: prioritize host tools, but include toolchain at the end
-# This way: host utilities (bash, make, etc.) are used first (avoiding GLIBC conflicts)
-# But GCC can still find its internal programs (cc1, etc.) from TOOLCHAIN_PATH
-# Priority: HOST_TOOL_PATH (exec_bdepend) > DEP_PATH (bdepend) > system PATH > TOOLCHAIN_PATH
-if [ -n "$HOST_TOOL_PATH" ]; then
-    export PATH="$HOST_TOOL_PATH:$DEP_PATH:$PATH:$TOOLCHAIN_PATH"
+# Fallback BUCKOS_TARGET if not auto-detected
+if [ -z "$BUCKOS_TARGET" ]; then
+    BUCKOS_TARGET="x86_64-buckos-linux-gnu"
+fi
+export BUCKOS_TARGET
+
+# PATH setup: For bootstrap builds, toolchain must come BEFORE /usr/bin so bootstrap
+# gcc is found instead of host gcc. TOOLCHAIN_PATH only contains compiler tools
+# (gcc, ld, ar, etc.), not general utilities, so this is safe.
+# Priority for bootstrap: TOOLCHAIN_PATH > HOST_TOOL_PATH > DEP_PATH > system PATH
+# Priority for non-bootstrap: HOST_TOOL_PATH > DEP_PATH > system PATH
+if [ "$USE_BOOTSTRAP" = "true" ] && [ -n "$TOOLCHAIN_PATH" ]; then
+    # Bootstrap build: toolchain first so bootstrap gcc is found
+    if [ -n "$HOST_TOOL_PATH" ]; then
+        export PATH="$TOOLCHAIN_PATH:$HOST_TOOL_PATH:$DEP_PATH:$PATH"
+    elif [ -n "$DEP_PATH" ]; then
+        export PATH="$TOOLCHAIN_PATH:$DEP_PATH:$PATH"
+    else
+        export PATH="$TOOLCHAIN_PATH:$PATH"
+    fi
+elif [ -n "$HOST_TOOL_PATH" ]; then
+    export PATH="$HOST_TOOL_PATH:$DEP_PATH:$PATH${TOOLCHAIN_PATH:+:$TOOLCHAIN_PATH}"
 elif [ -n "$DEP_PATH" ] && [ -n "$TOOLCHAIN_PATH" ]; then
     export PATH="$DEP_PATH:$PATH:$TOOLCHAIN_PATH"
 elif [ -n "$DEP_PATH" ]; then
@@ -504,6 +537,20 @@ elif [ "$USE_BOOTSTRAP" = "true" ]; then
         export OBJCOPY="$CROSS_COMPILER_BIN/${BUCKOS_TARGET}-objcopy"
         export OBJDUMP="$CROSS_COMPILER_BIN/${BUCKOS_TARGET}-objdump"
         export READELF="$CROSS_COMPILER_BIN/${BUCKOS_TARGET}-readelf"
+
+        # Set CHOST and CBUILD for autotools configure scripts
+        # CHOST = target triplet (where binaries will run)
+        # CBUILD = build machine triplet (where we're compiling)
+        export CHOST="$BUCKOS_TARGET"
+        # Get actual host triplet from uname
+        HOST_ARCH=$(uname -m)
+        case "$HOST_ARCH" in
+            x86_64) export CBUILD="x86_64-unknown-linux-gnu" ;;
+            aarch64) export CBUILD="aarch64-unknown-linux-gnu" ;;
+            *) export CBUILD="${HOST_ARCH}-unknown-linux-gnu" ;;
+        esac
+        echo "CHOST=$CHOST (target)"
+        echo "CBUILD=$CBUILD (build machine)"
 
         # Set sysroot for all compilation
         if [ -n "$BOOTSTRAP_SYSROOT" ]; then

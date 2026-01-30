@@ -20,6 +20,10 @@ autotools_package(
     description = "Library for configuring and customizing font access",
     homepage = "https://www.freedesktop.org/wiki/Software/fontconfig/",
     license = "MIT",
+    # gperf is needed to generate hash tables during build
+    bdepend = [
+        "//packages/linux/dev-tools/dev-utils/gperf:gperf",
+    ],
     configure_args = [
         "--disable-static",
         "--sysconfdir=/etc",

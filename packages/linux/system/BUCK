@@ -641,15 +641,18 @@ rootfs(
         "//packages/linux/core/procps-ng:procps-ng",
         "//packages/linux/core/file:file",
         "//packages/linux/system/apps/shadow:shadow",
+        # PAM runtime dependencies (pam_unix.so needs these)
+        "//packages/linux/system/libs/ipc/libtirpc:libtirpc",
+        "//packages/linux/system/libs/network/libnsl:libnsl",
         "//packages/linux/system/libs/crypto/openssl:openssl",
         "//packages/linux/system/libs/network/curl:curl",
         "//packages/linux/network/openssh:openssh",
         "//packages/linux/network/iproute2:iproute2",
         "//packages/linux/network/dhcpcd:dhcpcd",
+        "//packages/linux/network/net-tools:net-tools",
         # Init system
         "//packages/linux/system/init/systemd:systemd",
-        # Device management and session
-        "//packages/linux/system/init/eudev:eudev",
+        # Device management and session (systemd provides libudev and udevd)
         "//packages/linux/system/libs/libseat:libseat",
         "//packages/linux/system/libs/ipc/dbus:dbus",
         "//packages/linux/system/libs/kmod:kmod",
@@ -718,7 +721,7 @@ iso_image(
     rootfs = ":buckos-live-kde-rootfs",
     boot_mode = "hybrid",
     volume_label = "BUCKOS_LIVE",
-    kernel_args = "quiet splash init=/sbin/init",
+    kernel_args = "quiet splash",  # Let initramfs handle init
     visibility = ["PUBLIC"],
 )
 
@@ -793,6 +796,7 @@ qemu_boot_script(
 
 # ARM64 baselayout - Core filesystem layout for aarch64
 # Note: ARM64 uses 'lib' instead of 'lib64'
+# Create symlinks lib64 -> lib so packages configured for x86_64 paths still work
 genrule(
     name = "baselayout-aarch64-gen",
     out = "baselayout-aarch64",
@@ -826,6 +830,9 @@ mkdir -p $OUT/home
 mkdir -p $OUT/mnt
 mkdir -p $OUT/opt
 mkdir -p $OUT/boot
+# NOTE: Do NOT create lib64 symlinks here. The rootfs assembly script handles
+# merging lib64 contents into lib and creating symlinks AFTER all packages are copied.
+# Creating symlinks here causes cp -a to fail when copying package lib64 directories.
 # Set permissions
 chmod 1777 $OUT/tmp
 chmod 1777 $OUT/var/tmp
@@ -847,7 +854,10 @@ rootfs(
     packages = [
         ":init-scripts-gen",
         ":baselayout-aarch64-gen",
+        # C runtime (required for all dynamically-linked binaries)
+        "//packages/linux/core/glibc:glibc",
         # Core system
+        "//packages/linux/system/apps/coreutils:coreutils",
         "//packages/linux/system/libs/cpio:cpio",
         "//packages/linux/core/util-linux:util-linux",
         "//packages/linux/core/zlib:zlib",
@@ -870,6 +880,7 @@ rootfs(
         "//packages/linux/network/openssh:openssh",
         "//packages/linux/network/iproute2:iproute2",
         "//packages/linux/network/dhcpcd:dhcpcd",
+        "//packages/linux/network/net-tools:net-tools",
     ],
     default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
@@ -1021,12 +1032,17 @@ filegroup(
 )
 
 # ARM64 Live rootfs with Sway desktop
+# Matches x86 buckos-live-sway-rootfs with systemd init
 rootfs(
     name = "buckos-live-sway-rootfs-aarch64",
     packages = [
         ":live-init-scripts-gen",
         ":baselayout-aarch64-gen",
-        # Core system
+        # C runtime (required for all dynamically-linked binaries)
+        "//packages/linux/core/glibc:glibc",
+        # Core system utilities
+        "//packages/linux/system/apps/coreutils:coreutils",
+        "//packages/linux/editors/grep:grep",
         "//packages/linux/system/libs/cpio:cpio",
         "//packages/linux/core/util-linux:util-linux",
         "//packages/linux/core/zlib:zlib",
@@ -1034,16 +1050,27 @@ rootfs(
         "//packages/linux/system/terminal/readline:readline",
         "//packages/linux/core/bash:bash",
         "//packages/linux/core/less:less",
+        "//packages/linux/system/libs/utility/libffi:libffi",
         "//packages/linux/system/libs/compression/bzip2:bzip2",
         "//packages/linux/system/libs/compression/xz:xz",
         "//packages/linux/core/procps-ng:procps-ng",
         "//packages/linux/core/file:file",
         "//packages/linux/system/apps/shadow:shadow",
+        # PAM runtime dependencies (pam_unix.so needs these)
+        "//packages/linux/system/libs/ipc/libtirpc:libtirpc",
+        "//packages/linux/system/libs/network/libnsl:libnsl",
         "//packages/linux/system/libs/crypto/openssl:openssl",
         "//packages/linux/system/libs/network/curl:curl",
         "//packages/linux/network/openssh:openssh",
         "//packages/linux/network/iproute2:iproute2",
         "//packages/linux/network/dhcpcd:dhcpcd",
+        "//packages/linux/network/net-tools:net-tools",
+        # Init system
+        "//packages/linux/system/init/systemd:systemd",
+        # Device management and session (systemd provides libudev and udevd)
+        "//packages/linux/system/libs/libseat:libseat",
+        "//packages/linux/system/libs/ipc/dbus:dbus",
+        "//packages/linux/system/libs/kmod:kmod",
         # Graphics stack
         "//packages/linux/desktop/mesa:mesa",
         "//packages/linux/graphics/rendering/wayland:wayland",
@@ -1063,11 +1090,14 @@ rootfs(
 )
 
 # ARM64 Live initramfs
+# Uses the initramfs-init script for live boot from CD/USB
+# The script mounts the boot media, finds squashfs, sets up overlay, and switches root
 initramfs(
     name = "buckos-live-initramfs-aarch64",
     rootfs = ":buckos-rootfs-aarch64",
     compression = "gz",
-    init = "/sbin/init",
+    init = "/init",  # Use /init for initramfs (standard location)
+    init_script = "//defs/scripts:initramfs-init",  # Live boot script
     default_target_platform = "//platforms:linux-aarch64-target",
     visibility = ["PUBLIC"],
 )
@@ -1081,7 +1111,7 @@ iso_image(
     rootfs = ":buckos-live-sway-rootfs-aarch64",
     boot_mode = "efi",  # ARM64 uses UEFI
     volume_label = "BUCKOS_ARM64",
-    kernel_args = "quiet splash init=/sbin/init",
+    kernel_args = "quiet splash",  # Let initramfs handle init
     arch = "aarch64",
     visibility = ["PUBLIC"],
 )

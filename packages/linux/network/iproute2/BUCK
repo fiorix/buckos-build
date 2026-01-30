@@ -12,6 +12,8 @@ autotools_package(
     sha256 = "8738c804afd09f0bf756937f0c3de23117832a98d8cbbf50386cf5005cd613ce",
     signature_required = False,
 
+    # Only enable caps by default - elf has transitive dependency issues with pkg-config
+    iuse = ["elf", "caps"],
     use_defaults = ["caps"],
 
     use_deps = {
@@ -47,10 +49,19 @@ sed -i '/^static inline int setns/,/^}/d' include/namespace.h || true
 sed -i '/^TARGETS/s/ maketable//' netem/Makefile 2>/dev/null || true
 sed -i '/maketable/d' netem/Makefile 2>/dev/null || true
 sed -i '/paretonormal/d' netem/Makefile 2>/dev/null || true
+
+# Disable SELinux check - we don't have libselinux yet
+sed -i 's/^check_selinux$/echo "no" # check_selinux disabled/' configure
+
+# Disable libbpf - we don't have it yet
+sed -i 's/^check_libbpf$/echo "no" # check_libbpf disabled/' configure
+
+# Disable ELF support - transitive dependency issues with pkg-config
+sed -i 's/^check_elf$/echo "no" # check_elf disabled/' configure
 """,
 
     pre_configure = """
-# iproute2 uses a different build system
+# iproute2 uses a different build system - just run configure
 ./configure
 """,
 

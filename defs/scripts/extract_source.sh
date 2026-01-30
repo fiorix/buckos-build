@@ -14,6 +14,9 @@
 
 set -e
 
+# Ensure native system tools are found first in PATH
+export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
+
 OUT_DIR="$1"
 ARCHIVE="$2"
 SIGNATURE="$3"

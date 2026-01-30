@@ -101,23 +101,13 @@ for dep_dir in "${DEP_DIRS_ARRAY[@]}"; do
     DEP_BASE_DIRS="${DEP_BASE_DIRS:+$DEP_BASE_DIRS:}$dep_dir"
 
     # Check if this is a bootstrap toolchain output (from earlier stage1 packages)
-    # IMPORTANT: Skip cross-toolchains for FOREIGN architectures from PATH
-    # These contain tools prefixed with target triplet (aarch64-buckos-linux-gnu-*)
-    # If added to PATH, they shadow host tools like 'as' and break host builds
-    # Cross-toolchain packages that need their tools should add them explicitly
-    # Pattern: skip packages with architecture suffix like "-aarch64", "-arm", etc.
-    # But allow native x86_64 cross-toolchains (cross-binutils, cross-gcc-pass1 without arch suffix)
+    # Add cross-toolchain to PATH so GCC configure can find prefixed tools
+    # (e.g., x86_64-buckos-linux-gnu-as). The unprefixed symlinks may shadow host
+    # tools, but we explicitly set AS/AR/LD/etc. to /usr/bin/* below to prevent this.
     if [ -d "$dep_dir/tools/bin" ]; then
-        if [[ "$dep_dir" == *"cross-"*"-aarch64"* ]] || \
-           [[ "$dep_dir" == *"cross-"*"-arm"* ]] || \
-           [[ "$dep_dir" == *"cross-"*"-riscv"* ]] || \
-           [[ "$dep_dir" == *"cross-"*"-powerpc"* ]]; then
-            echo "Skipping foreign-arch cross-toolchain from PATH: $dep_dir"
-        else
-            TOOLCHAIN_PATH="${TOOLCHAIN_PATH:+$TOOLCHAIN_PATH:}$dep_dir/tools/bin"
-            if [ -z "$BOOTSTRAP_SYSROOT" ] && [ -d "$dep_dir/tools" ]; then
-                BOOTSTRAP_SYSROOT="$dep_dir/tools"
-            fi
+        TOOLCHAIN_PATH="${TOOLCHAIN_PATH:+$TOOLCHAIN_PATH:}$dep_dir/tools/bin"
+        if [ -z "$BOOTSTRAP_SYSROOT" ] && [ -d "$dep_dir/tools" ]; then
+            BOOTSTRAP_SYSROOT="$dep_dir/tools"
         fi
     fi
 
@@ -166,15 +156,20 @@ export DEP_BASE_DIRS      # For packages that need direct access to dependency p
 # =============================================================================
 # Stage 1: PATH Setup
 # =============================================================================
-# PATH priority: toolchain tools first, dependency tools, then HOST system
-# Stage 1 ALLOWS host PATH fallback since we're building the initial toolchain
+# CRITICAL: For Stage 1, HOST tools (/usr/bin) must come BEFORE TOOLCHAIN_PATH.
+# Cross-binutils contains unprefixed symlinks (as -> x86_64-buckos-linux-gnu-as).
+# If TOOLCHAIN_PATH comes first, host gcc will invoke the wrong 'as' (x86_64
+# assembler on an aarch64 host), causing errors like "as: unrecognized option '-EL'".
+# The TOOLCHAIN_PATH is still added so configure can find prefixed tools like
+# x86_64-buckos-linux-gnu-as via explicit path or --target lookups.
 
 if [ -n "$TOOLCHAIN_PATH" ]; then
-    export PATH="$TOOLCHAIN_PATH:$DEP_PATH:$PATH"
-    echo "PATH (toolchain first): $TOOLCHAIN_PATH:$DEP_PATH:..."
+    # HOST tools first, then toolchain, then deps
+    export PATH="/usr/bin:/bin:$TOOLCHAIN_PATH:$DEP_PATH:$PATH"
+    echo "PATH (host first for stage1): /usr/bin:/bin:$TOOLCHAIN_PATH:..."
 elif [ -n "$DEP_PATH" ]; then
-    export PATH="$DEP_PATH:$PATH"
-    echo "PATH (deps first): $DEP_PATH:..."
+    export PATH="/usr/bin:/bin:$DEP_PATH:$PATH"
+    echo "PATH (host first, deps): /usr/bin:/bin:$DEP_PATH:..."
 else
     echo "PATH (host only): $PATH"
 fi
@@ -241,15 +236,18 @@ echo "CFLAGS=$CFLAGS"
 echo "CXXFLAGS=$CXXFLAGS"
 
 # Standard build tools (host versions)
-export AR="${AR:-ar}"
-export AS="${AS:-as}"
-export LD="${LD:-ld}"
-export NM="${NM:-nm}"
-export RANLIB="${RANLIB:-ranlib}"
-export STRIP="${STRIP:-strip}"
-export OBJCOPY="${OBJCOPY:-objcopy}"
-export OBJDUMP="${OBJDUMP:-objdump}"
-export READELF="${READELF:-readelf}"
+# CRITICAL: Use full paths to prevent cross-toolchain symlinks from shadowing host tools.
+# Cross-binutils creates unprefixed symlinks (as -> x86_64-buckos-linux-gnu-as) which would
+# be found first in PATH. We must use /usr/bin/* to ensure host tools are used for building.
+export AR="${AR:-/usr/bin/ar}"
+export AS="${AS:-/usr/bin/as}"
+export LD="${LD:-/usr/bin/ld}"
+export NM="${NM:-/usr/bin/nm}"
+export RANLIB="${RANLIB:-/usr/bin/ranlib}"
+export STRIP="${STRIP:-/usr/bin/strip}"
+export OBJCOPY="${OBJCOPY:-/usr/bin/objcopy}"
+export OBJDUMP="${OBJDUMP:-/usr/bin/objdump}"
+export READELF="${READELF:-/usr/bin/readelf}"
 
 # =============================================================================
 # Stage 1: FOR_BUILD Variables

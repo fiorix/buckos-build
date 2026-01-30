@@ -12,7 +12,62 @@ meson_package(
     license = "LGPL-2.0-or-later",
     iuse = ["static-libs", "introspection", "cairo", "X", "doc"],
     use_defaults = ["cairo"],
+    src_configure = '''
+# Create a stub help2man BEFORE meson setup so it gets recorded instead of /usr/bin/help2man
+# This is needed because help2man tries to run pango-view --help-all which fails
+# when cross-compiling (can't run aarch64 binary on x86_64 host or vice versa)
+mkdir -p "$T/bin"
+cat > "$T/bin/help2man" << 'HELP2MAN_STUB'
+#!/bin/sh
+# Stub help2man for cross-compilation - generates minimal man page
+output=""
+name=""
+section="1"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o) output="$2"; shift 2 ;;
+        --output=*) output="${1#--output=}"; shift ;;
+        --section=*) section="${1#--section=}"; shift ;;
+        --name=*) name="${1#--name=}"; shift ;;
+        -*) shift ;;  # Skip other options
+        *) prog="$1"; shift ;;  # Last arg is the program
+    esac
+done
+if [ -n "$output" ]; then
+    mkdir -p "$(dirname "$output")"
+    progname=$(basename "${prog:-unknown}")
+    cat > "$output" << MANPAGE
+.TH "${progname^^}" "$section"
+.SH NAME
+$progname \- ${name:-program}
+.SH DESCRIPTION
+This man page was generated during cross-compilation.
+MANPAGE
+fi
+exit 0
+HELP2MAN_STUB
+chmod +x "$T/bin/help2man"
+export PATH="$T/bin:$PATH"
+
+# Add freetype2 and other include subdirectory paths to CFLAGS
+IFS=':' read -ra DEP_ARRAY <<< "$DEP_BASE_DIRS"
+for dep_dir in "${DEP_ARRAY[@]}"; do
+    for subdir in freetype2 harfbuzz fontconfig cairo pixman-1; do
+        if [ -d "$dep_dir/usr/include/$subdir" ]; then
+            export CFLAGS="${CFLAGS:-} -I$dep_dir/usr/include/$subdir"
+            export CXXFLAGS="${CXXFLAGS:-} -I$dep_dir/usr/include/$subdir"
+        fi
+    done
+done
+
+meson setup "${BUILD_DIR:-build}" \
+    --prefix="${EPREFIX:-/usr}" \
+    --libdir="${LIBDIR:-lib64}" \
+    --buildtype="${MESON_BUILD_TYPE:-release}" \
+    ${MESON_EXTRA_ARGS:-}
+''',
     meson_args = [
+        "--wrap-mode=nodownload",
         "-Dintrospection=disabled",
         "-Dxft=disabled",
         "-Dgtk_doc=false",
@@ -45,11 +100,13 @@ meson_package(
         "//packages/linux/system/libs/data/expat:expat",
         "//packages/linux/system/libs/image/libpng:libpng",
         "//packages/linux/system/libs/compression/brotli:brotli",
+        "//packages/linux/system/libs/compression/bzip2:bzip2",
         "//packages/linux/system/security/auth/biometric:pixman",
         "//packages/linux/system/libs/font/fribidi:fribidi",
         "//packages/linux/system/libs/font/freetype:freetype",
         "//packages/linux/system/libs/font/fontconfig:fontconfig",
         "//packages/linux/system/libs/font/harfbuzz:harfbuzz",
+        "//packages/linux/system/libs/font/graphite2:graphite2",
     ],
     visibility = ["PUBLIC"],
 )

@@ -88,9 +88,9 @@ read -ra DEP_DIRS_ARRAY <<< "$_EBUILD_DEP_DIRS"
 # Package variables are already exported by wrapper
 export PACKAGE_NAME="$PN"
 
-# Bootstrap configuration
-BUCKOS_TARGET="x86_64-buckos-linux-gnu"
-export BUCKOS_TARGET
+# Bootstrap configuration - BUCKOS_TARGET will be auto-detected from cross-compiler
+# Default to x86_64, but will be overridden by auto-detection below
+BUCKOS_TARGET=""
 
 # =============================================================================
 # Stage 2: Dependency Path Setup
@@ -125,6 +125,11 @@ for dep_dir in "${DEP_DIRS_ARRAY[@]}"; do
             if [ -f "$compiler" ]; then
                 TOOLCHAIN_PATH="${TOOLCHAIN_PATH:+$TOOLCHAIN_PATH:}$dep_dir/tools/bin"
                 echo "Added cross-gcc to TOOLCHAIN_PATH: $dep_dir/tools/bin"
+                # Auto-detect BUCKOS_TARGET from cross-compiler name
+                if [ -z "$BUCKOS_TARGET" ]; then
+                    BUCKOS_TARGET=$(basename "$compiler" | sed 's/-gcc$//')
+                    echo "Auto-detected BUCKOS_TARGET: $BUCKOS_TARGET"
+                fi
                 break
             fi
         done
@@ -134,6 +139,11 @@ for dep_dir in "${DEP_DIRS_ARRAY[@]}"; do
                 if [ -f "$linker" ]; then
                     TOOLCHAIN_PATH="${TOOLCHAIN_PATH:+$TOOLCHAIN_PATH:}$dep_dir/tools/bin"
                     echo "Added cross-binutils to TOOLCHAIN_PATH: $dep_dir/tools/bin"
+                    # Auto-detect BUCKOS_TARGET from linker name if not already set
+                    if [ -z "$BUCKOS_TARGET" ]; then
+                        BUCKOS_TARGET=$(basename "$linker" | sed 's/-ld$//')
+                        echo "Auto-detected BUCKOS_TARGET from binutils: $BUCKOS_TARGET"
+                    fi
                     break
                 fi
             done
@@ -181,6 +191,13 @@ export TOOLCHAIN_INCLUDE
 export TOOLCHAIN_ROOT
 export DEP_BASE_DIRS
 
+# Fallback BUCKOS_TARGET if not auto-detected (shouldn't happen with proper deps)
+if [ -z "$BUCKOS_TARGET" ]; then
+    BUCKOS_TARGET="x86_64-buckos-linux-gnu"
+    echo "WARNING: Could not auto-detect BUCKOS_TARGET, defaulting to $BUCKOS_TARGET"
+fi
+export BUCKOS_TARGET
+
 # =============================================================================
 # Stage 2: PATH Setup with Host Build Tools
 # =============================================================================
@@ -195,7 +212,7 @@ export DEP_BASE_DIRS
 # 3. Only when we chroot into the target (Stage 3) can we use these tools
 #
 # Therefore, for Stage 2:
-# - Cross-compiler (x86_64-buckos-linux-gnu-gcc) from TOOLCHAIN_PATH
+# - Cross-compiler (${BUCKOS_TARGET}-gcc) from TOOLCHAIN_PATH
 # - Build tools (make, sed, awk, grep) from HOST system (/usr/bin, /bin)
 # - DEP_PATH is NOT added to PATH for executables (only for libraries/includes)
 
@@ -365,13 +382,29 @@ else
     # Fallback - use tools from buck-out with explicit sysroot
     echo "Using tools with explicit sysroot"
     # Find the cross-GCC sysroot from dependencies
+    # Check multiple possible layouts:
+    # 1. Sysroot layout: tools/${BUCKOS_TARGET}/sys-root/usr/lib
+    # 2. FHS layout (cross-glibc): usr/lib or usr/lib64
     CROSS_GCC_SYSROOT=""
     if [ -n "$DEP_BASE_DIRS" ]; then
         IFS=':' read -ra DEP_DIRS <<< "$DEP_BASE_DIRS"
         for dep_dir in "${DEP_DIRS[@]}"; do
+            # Check sysroot layout first
             if [ -d "$dep_dir/tools/${BUCKOS_TARGET}/sys-root/usr/lib" ]; then
                 CROSS_GCC_SYSROOT="$dep_dir/tools/${BUCKOS_TARGET}/sys-root"
                 echo "Found cross-GCC sysroot at: $CROSS_GCC_SYSROOT"
+                break
+            fi
+            # Check FHS layout (cross-glibc uses /usr/lib or /usr/lib64)
+            # Look for libc.so.6 which is unique to glibc
+            if [ -f "$dep_dir/usr/lib/libc.so.6" ]; then
+                CROSS_GCC_SYSROOT="$dep_dir"
+                echo "Found cross-glibc (FHS layout) at: $CROSS_GCC_SYSROOT"
+                break
+            fi
+            if [ -f "$dep_dir/usr/lib64/libc.so.6" ]; then
+                CROSS_GCC_SYSROOT="$dep_dir"
+                echo "Found cross-glibc (FHS layout lib64) at: $CROSS_GCC_SYSROOT"
                 break
             fi
         done
@@ -382,16 +415,50 @@ else
         echo "DEP_BASE_DIRS=$DEP_BASE_DIRS"
     fi
 
-    SYSROOT_FLAG=""
-    LDFLAGS_SYSROOT=""
-    if [ -n "$CROSS_GCC_SYSROOT" ]; then
-        SYSROOT_FLAG="--sysroot=$CROSS_GCC_SYSROOT"
-        LDFLAGS_SYSROOT="-Wl,--sysroot=$CROSS_GCC_SYSROOT"
+    # Find linux kernel headers in dependencies
+    LINUX_HEADERS_DIR=""
+    if [ -n "$DEP_BASE_DIRS" ]; then
+        IFS=':' read -ra DEP_DIRS <<< "$DEP_BASE_DIRS"
+        for dep_dir in "${DEP_DIRS[@]}"; do
+            # Check for linux headers in tools/${BUCKOS_TARGET}/include
+            if [ -d "$dep_dir/tools/${BUCKOS_TARGET}/include/linux" ]; then
+                LINUX_HEADERS_DIR="$dep_dir/tools/${BUCKOS_TARGET}/include"
+                echo "Found linux headers at: $LINUX_HEADERS_DIR"
+                break
+            fi
+            # Check for linux headers in tools/include
+            if [ -d "$dep_dir/tools/include/linux" ]; then
+                LINUX_HEADERS_DIR="$dep_dir/tools/include"
+                echo "Found linux headers at: $LINUX_HEADERS_DIR"
+                break
+            fi
+        done
     fi
 
-    export CC="${BUCKOS_TARGET}-gcc $SYSROOT_FLAG"
-    export CXX="${BUCKOS_TARGET}-g++ $SYSROOT_FLAG"
-    export CPP="${BUCKOS_TARGET}-gcc $SYSROOT_FLAG -E"
+    SYSROOT_FLAG=""
+    LDFLAGS_SYSROOT=""
+    CFLAGS_SYSROOT=""
+    INCLUDE_SYSROOT=""
+    if [ -n "$CROSS_GCC_SYSROOT" ]; then
+        SYSROOT_FLAG="--sysroot=$CROSS_GCC_SYSROOT"
+        # GCC was configured with non-standard header dir, so we must explicitly add /usr/include
+        INCLUDE_SYSROOT="-isystem $CROSS_GCC_SYSROOT/usr/include"
+        # Also add linux kernel headers if found
+        if [ -n "$LINUX_HEADERS_DIR" ]; then
+            INCLUDE_SYSROOT="$INCLUDE_SYSROOT -isystem $LINUX_HEADERS_DIR"
+        fi
+        # -B tells GCC where to find CRT startup files (crti.o, crtn.o, etc.)
+        CFLAGS_SYSROOT="--sysroot=$CROSS_GCC_SYSROOT -B$CROSS_GCC_SYSROOT/usr/lib/ $INCLUDE_SYSROOT"
+        # Add explicit library path for CRT files and shared libraries
+        LDFLAGS_SYSROOT="-Wl,--sysroot=$CROSS_GCC_SYSROOT -B$CROSS_GCC_SYSROOT/usr/lib/ -L$CROSS_GCC_SYSROOT/usr/lib"
+    fi
+
+    # Don't embed --sysroot in CC - some configure scripts don't like options in CC
+    # Instead, pass sysroot through CFLAGS/LDFLAGS
+    export CC="${BUCKOS_TARGET}-gcc"
+    export CXX="${BUCKOS_TARGET}-g++"
+    # Use gcc -E instead of standalone cpp so it picks up CFLAGS (including --sysroot)
+    export CPP="${BUCKOS_TARGET}-gcc -E $CFLAGS_SYSROOT"
     export AR="${BUCKOS_TARGET}-ar"
     export AS="${BUCKOS_TARGET}-as"
     export LD="${BUCKOS_TARGET}-ld"
@@ -402,8 +469,9 @@ else
     export OBJDUMP="${BUCKOS_TARGET}-objdump"
     export READELF="${BUCKOS_TARGET}-readelf"
 
-    export CFLAGS="-O2"
-    export CXXFLAGS="-O2"
+    export CFLAGS="-O2 $CFLAGS_SYSROOT"
+    export CXXFLAGS="-O2 $CFLAGS_SYSROOT"
+    export CPPFLAGS="$CFLAGS_SYSROOT"
     export LDFLAGS="$LDFLAGS_SYSROOT"
 fi
 

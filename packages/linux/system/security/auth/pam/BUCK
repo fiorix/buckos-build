@@ -57,7 +57,7 @@ ebuild_package(
     --sysconfdir=/etc \\
     --libdir=/usr/lib \\
     --sbindir=/usr/sbin \\
-    --enable-securedir=/lib64/security \\
+    --enable-securedir=/lib/security \\
     --disable-nls \\
     --disable-db
 ''',
@@ -73,6 +73,68 @@ make DESTDIR="$DESTDIR" install
 # The .la files reference /usr/lib/libpam.la which breaks cross-builds
 echo "Removing PAM .la files..."
 find "$DESTDIR" -name "*.la" -type f -delete 2>/dev/null || true
+
+# Create system-auth PAM config (required by login, su, and other services)
+mkdir -p "$DESTDIR/etc/pam.d"
+cat > "$DESTDIR/etc/pam.d/system-auth" << 'SYSTEMAUTH'
+#%PAM-1.0
+# System authentication configuration
+
+auth      required  pam_env.so
+auth      sufficient pam_unix.so try_first_pass nullok
+auth      required  pam_deny.so
+
+account   required  pam_unix.so
+
+password  sufficient pam_unix.so try_first_pass nullok sha512 shadow
+password  required  pam_deny.so
+
+session   required  pam_limits.so
+session   required  pam_unix.so
+SYSTEMAUTH
+
+# Fix login PAM config to not require missing modules (pam_console, pam_selinux)
+cat > "$DESTDIR/etc/pam.d/login" << 'LOGINPAM'
+#%PAM-1.0
+# Login PAM configuration
+
+# Make securetty optional in case of issues
+auth      optional  pam_securetty.so
+auth      required  pam_env.so
+auth      sufficient pam_unix.so try_first_pass nullok
+auth      required  pam_deny.so
+
+account   optional  pam_nologin.so
+account   required  pam_unix.so
+
+password  sufficient pam_unix.so try_first_pass nullok sha512 shadow
+password  required  pam_deny.so
+
+session   optional  pam_limits.so
+session   required  pam_unix.so
+session   optional  pam_loginuid.so
+LOGINPAM
+
+# Create "other" fallback PAM config
+cat > "$DESTDIR/etc/pam.d/other" << 'OTHERPAM'
+#%PAM-1.0
+# Default fallback for unlisted services
+
+auth      required  pam_unix.so nullok
+account   required  pam_unix.so
+password  required  pam_unix.so nullok sha512 shadow
+session   required  pam_unix.so
+OTHERPAM
+
+# Create systemd-user PAM config (for user sessions)
+cat > "$DESTDIR/etc/pam.d/systemd-user" << 'SYSTEMDUSER'
+#%PAM-1.0
+# PAM configuration for systemd user sessions
+
+account  required pam_unix.so
+session  required pam_unix.so
+session  required pam_loginuid.so
+SYSTEMDUSER
 ''',
 
     depend = [

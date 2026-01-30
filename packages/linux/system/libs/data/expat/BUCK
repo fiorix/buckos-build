@@ -9,6 +9,24 @@ download_source(
     signature_required = False,
 )
 
+# expat-host - Native expat for host builds (used by wayland-host, etc.)
+autotools_package(
+    name = "expat-host",
+    source = ":expat-src",
+    version = "2.6.3",
+    description = "Stream-oriented XML parser library (host build)",
+    homepage = "https://libexpat.github.io/",
+    license = "MIT",
+    # Build for host, not cross-compile
+    use_bootstrap = False,
+    bdepend = [],
+    configure_args = [
+        "--disable-static",
+        "--without-examples",
+    ],
+    visibility = ["PUBLIC"],
+)
+
 # expat - official release tarball includes pre-generated configure
 autotools_package(
     name = "expat",

@@ -97,7 +97,7 @@ echo "LLVM ${PV} installed to /usr/lib/llvm/21"
 
     bdepend = ["toolchains//bootstrap:bootstrap-toolchain"],
     depend = [
-        "//packages/linux/core/zlib:zlib",
+        "root//packages/linux/core/zlib:zlib",
     ],
     use_bootstrap = False,
     visibility = ["PUBLIC"],
@@ -160,6 +160,157 @@ echo "LLVM toolchain assembled in /tools"
 ''',
 
     bdepend = [":llvm-bootstrap"],
+    depend = [],
+    use_bootstrap = False,
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# ARM64 LLVM Bootstrap Build
+# =============================================================================
+# Build LLVM from source for aarch64 using the native host compiler.
+# This is a NATIVE build (not cross-compilation) - runs on aarch64 host.
+
+ebuild_package(
+    name = "llvm-bootstrap-aarch64",
+    source = ":llvm-src",
+    version = "21.1.8",
+    category = "toolchain/bootstrap",
+    slot = "0",
+    description = "LLVM compiler infrastructure for aarch64 - bootstrap build for Rust",
+    homepage = "https://llvm.org/",
+    license = "Apache-2.0-with-LLVM-exceptions",
+    # NOTE: No bootstrap_stage - use host's native compiler for native aarch64 builds
+
+    env = {
+        # Use release build for speed
+        "CMAKE_BUILD_TYPE": "Release",
+        # Parallel build
+        "MAKEFLAGS": "-j$(nproc)",
+    },
+
+    src_configure = '''
+# Create build directory
+mkdir -p build
+cd build
+
+# Configure LLVM with CMake
+# Native build for aarch64, also enable X86 target for cross-compilation support
+# Note: -DLLVM_COMPILER_CHECKED helps skip some checks that fail in sandbox
+# The -latomic is needed on aarch64 for std::atomic support
+cmake -G "Unix Makefiles" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/lib/llvm/21 \
+    -DCMAKE_CXX_FLAGS="-latomic" \
+    -DCMAKE_EXE_LINKER_FLAGS="-latomic" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-latomic" \
+    -DLLVM_TARGETS_TO_BUILD="AArch64;X86" \
+    -DLLVM_ENABLE_PROJECTS="clang;lld" \
+    -DLLVM_BUILD_LLVM_DYLIB=ON \
+    -DLLVM_LINK_LLVM_DYLIB=ON \
+    -DLLVM_ENABLE_ASSERTIONS=OFF \
+    -DLLVM_ENABLE_RTTI=ON \
+    -DLLVM_ENABLE_EH=ON \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLLVM_INCLUDE_EXAMPLES=OFF \
+    -DLLVM_INCLUDE_BENCHMARKS=OFF \
+    -DLLVM_INCLUDE_DOCS=OFF \
+    -DLLVM_ENABLE_BINDINGS=OFF \
+    -DLLVM_ENABLE_ZLIB=ON \
+    -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_LIBXML2=OFF \
+    -DLLVM_ENABLE_TERMINFO=ON \
+    -DLLVM_ENABLE_FFI=OFF \
+    -DCLANG_ENABLE_ARCMT=OFF \
+    -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
+    -DCLANG_PLUGIN_SUPPORT=OFF \
+    ../llvm
+
+echo "LLVM configured for aarch64 native build with targets: AArch64;X86"
+''',
+
+    src_compile = '''
+cd build
+cmake --build . -- -j$(nproc)
+''',
+
+    src_install = '''
+cd build
+
+# Install to DESTDIR
+DESTDIR="$DESTDIR" cmake --install .
+
+# Create version symlink
+ln -sf llvm/21 "$DESTDIR/usr/lib/llvm-21"
+
+echo "LLVM ${PV} (aarch64) installed to /usr/lib/llvm/21"
+''',
+
+    # No bdepend - use host's native compiler for native aarch64 builds
+    # The host must have: gcc/g++, cmake, make, and development headers
+    bdepend = [],
+    depend = [],  # Use host zlib via -DLLVM_ENABLE_ZLIB=ON (finds system zlib)
+    use_bootstrap = False,
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# ARM64 LLVM Toolchain Aggregate
+# =============================================================================
+# This target provides LLVM for aarch64 Rust and other package builds.
+
+ebuild_package(
+    name = "llvm-toolchain-aarch64",
+    source = ":llvm-src",  # Dummy source
+    version = "21.1.8",
+    category = "toolchain/bootstrap",
+    slot = "0",
+    description = "LLVM toolchain for BuckOS aarch64 package builds",
+    homepage = "https://llvm.org/",
+    license = "Apache-2.0-with-LLVM-exceptions",
+
+    src_configure = "true",
+    src_compile = "true",
+
+    src_install = '''
+# Copy LLVM from llvm-bootstrap-aarch64 to tools directory structure
+mkdir -p "$DESTDIR/tools"
+
+IFS=':' read -ra DEP_ARRAY <<< "$DEP_BASE_DIRS"
+for dep_dir in "${DEP_ARRAY[@]}"; do
+    if [ -d "$dep_dir/usr/lib/llvm/21" ]; then
+        echo "Found LLVM at: $dep_dir/usr/lib/llvm/21"
+        # Copy the entire LLVM installation
+        cp -a "$dep_dir/usr/lib/llvm/21" "$DESTDIR/tools/llvm"
+
+        # Create symlinks in tools/bin for PATH
+        mkdir -p "$DESTDIR/tools/bin"
+        for bin in "$DESTDIR/tools/llvm/bin"/*; do
+            if [ -f "$bin" ]; then
+                name=$(basename "$bin")
+                ln -sf ../llvm/bin/"$name" "$DESTDIR/tools/bin/$name"
+            fi
+        done
+        break
+    fi
+done
+
+if [ ! -x "$DESTDIR/tools/llvm/bin/llvm-config" ]; then
+    echo "ERROR: Could not find llvm-bootstrap-aarch64 output"
+    exit 1
+fi
+
+# Create marker file
+cat > "$DESTDIR/tools/.llvm-toolchain" << 'EOF'
+BuckOS LLVM Toolchain (aarch64)
+LLVM version: 21.1.8
+Built from source for Rust bootstrap on aarch64
+EOF
+
+echo "LLVM toolchain (aarch64) assembled in /tools"
+''',
+
+    bdepend = [":llvm-bootstrap-aarch64"],
     depend = [],
     use_bootstrap = False,
     visibility = ["PUBLIC"],

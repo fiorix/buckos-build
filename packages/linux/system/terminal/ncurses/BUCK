@@ -57,9 +57,33 @@ autotools_package(
         "--enable-colorfgbg",
         "--enable-hard-tabs",
         "--enable-echo",
-        "--disable-termcap",
+        "--enable-termcap",
         "--disable-stripping",
+        "--without-ada",
+        "--without-tests",
     ],
+
+    src_install = '''
+make DESTDIR="$DESTDIR" install
+
+# Create symlinks for non-wide character versions
+cd "$DESTDIR/usr/lib64"
+for lib in ncurses form panel menu; do
+    ln -sf lib${lib}w.so lib${lib}.so 2>/dev/null || true
+    ln -sf lib${lib}w.a lib${lib}.a 2>/dev/null || true
+done
+
+# tinfo compatibility
+ln -sf libncursesw.so libtinfo.so 2>/dev/null || true
+ln -sf libncursesw.so libtinfow.so 2>/dev/null || true
+
+# Create pkg-config symlinks
+cd "$DESTDIR/usr/lib64/pkgconfig"
+for pc in ncurses form panel menu; do
+    ln -sf ${pc}w.pc ${pc}.pc 2>/dev/null || true
+done
+ln -sf ncursesw.pc tinfo.pc 2>/dev/null || true
+''',
 
     deps = [],
     visibility = ["PUBLIC"],

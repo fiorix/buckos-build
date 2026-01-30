@@ -1,13 +1,42 @@
-load("//defs:package_defs.bzl", "meson_package")
+load("//defs:package_defs.bzl", "meson_package", "download_source")
+
+# Shared source for both host and target wayland builds
+download_source(
+    name = "wayland-src",
+    src_uri = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.23.1/downloads/wayland-1.23.1.tar.xz",
+    sha256 = "864fb2a8399e2d0ec39d56e9d9b753c093775beadc6022ce81f441929a81e5ed",
+)
+
+# wayland-host - Native wayland-scanner for cross-compilation
+# This builds wayland-scanner for the build host, which is then used
+# when cross-compiling wayland for other architectures.
+# Uses system expat-devel (must be installed on host).
+meson_package(
+    name = "wayland-host",
+    version = "1.23.1",
+    source = ":wayland-src",
+    description = "Wayland scanner for host (build tool)",
+    homepage = "https://gitlab.freedesktop.org/wayland/wayland",
+    license = "MIT",
+    # Build only on host platform - no cross-compilation
+    use_bootstrap = False,
+    # No deps - uses system expat
+    meson_args = [
+        "-Ddocumentation=false",
+        "-Dtests=false",
+        "-Ddtd_validation=false",
+        "-Dscanner=true",
+        "-Dlibraries=false",  # Only build scanner, not libraries
+    ],
+    visibility = ["PUBLIC"],
+)
 
 # wayland - Wayland display protocol libraries and scanner tool
 # Following Gentoo's approach: disable dtd_validation to avoid libxml2 runtime dependency
-
 meson_package(
     name = "wayland",
     version = "1.23.1",
-    src_uri = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.23.1/downloads/wayland-1.23.1.tar.xz",
-    sha256 = "864fb2a8399e2d0ec39d56e9d9b753c093775beadc6022ce81f441929a81e5ed",
+    source = ":wayland-src",
     description = "Wayland display protocol libraries and scanner",
     homepage = "https://gitlab.freedesktop.org/wayland/wayland",
     license = "MIT",
@@ -15,13 +44,20 @@ meson_package(
         "//packages/linux/system/libs/utility/libffi:libffi",
         "//packages/linux/system/libs/data/expat:expat",
     ],
+    exec_bdepend = [
+        ":wayland-host",  # Need host wayland-scanner for cross-compilation (exec_bdepend builds for host)
+    ],
+    # Patch meson.build to use find_program instead of pkg-config dependency lookup
+    patches = [
+        "patches/0001-use-find_program-for-wayland-scanner.patch",
+    ],
     meson_args = [
         "-Ddocumentation=false",
         "-Dtests=false",
         # Disable DTD validation - this removes the libxml2 dependency from wayland-scanner
-        # wayland-scanner is used as a build tool by other packages (Qt6, etc.)
-        # Without this, wayland-scanner would need libxml2.so.2 at runtime
         "-Ddtd_validation=false",
+        "-Dscanner=false",  # Don't build scanner, use pre-built host one
+        "-Dlibraries=true",
     ],
     visibility = ["PUBLIC"],
 )

@@ -86,7 +86,8 @@ ldd "$NATIVE_BUILD_DIR/src/file" || true
 # Return to source directory and reconfigure for the target
 cd "$S"
 echo "=== Reconfiguring for target build ==="
-./configure --prefix=/usr --libdir=/usr/lib64 --enable-zlib
+# Use EXTRA_ECONF which contains the USE-flag based configure options
+./configure --prefix=/usr --libdir=/usr/lib64 ${EXTRA_ECONF:-}
 
 echo "=== Building main file package ==="
 make -j${MAKEOPTS:-$(nproc)} FILE_COMPILE="$NATIVE_BUILD_DIR/src/file"

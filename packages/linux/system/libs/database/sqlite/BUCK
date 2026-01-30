@@ -47,10 +47,11 @@ autotools_package(
     env = {
         "CPPFLAGS": "-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_ENABLE_UNLOCK_NOTIFY=1 -DSQLITE_SECURE_DELETE=1",
     },
-    # gawk needed for configure script - must run on host (exec_bdepend)
-    exec_bdepend = [
-        "//packages/linux/editors/gawk:gawk",
-    ],
+    # gawk needed for configure script - system gawk is used since bootstrap gawk
+    # links against glibc 2.38 which may not be available on all hosts
+    # exec_bdepend = [
+    #     "//packages/linux/editors/gawk:gawk",
+    # ],
     deps = [
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/terminal/readline:readline",

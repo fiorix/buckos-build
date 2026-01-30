@@ -5,6 +5,14 @@
 # Set PATH first - essential for finding commands
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
+# Set up console - try multiple devices for both x86_64 and aarch64
+for console in /dev/console /dev/ttyAMA0 /dev/ttyS0 /dev/tty0 /dev/tty1; do
+    if [ -c "$console" ]; then
+        exec 0<"$console" 1>"$console" 2>"$console"
+        break
+    fi
+done
+
 # Mount essential filesystems (skip if already mounted by initramfs)
 mountpoint -q /proc  || mount -t proc proc /proc
 mountpoint -q /sys   || mount -t sysfs sys /sys

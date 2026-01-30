@@ -28,9 +28,19 @@ autotools_package(
 # Fix libbsd.so linker script: replace absolute host paths with relative names
 if [ -f "$DESTDIR/usr/lib64/libbsd.so" ]; then
     echo "Fixing libbsd.so linker script..."
-    cat > "$DESTDIR/usr/lib64/libbsd.so" << 'LDSCRIPT'
+    # Detect output format based on target architecture
+    if [ -n "$CHOST" ]; then
+        case "$CHOST" in
+            aarch64*) OUTPUT_FORMAT="elf64-littleaarch64" ;;
+            x86_64*) OUTPUT_FORMAT="elf64-x86-64" ;;
+            *) OUTPUT_FORMAT="elf64-x86-64" ;;  # fallback
+        esac
+    else
+        OUTPUT_FORMAT="elf64-x86-64"
+    fi
+    cat > "$DESTDIR/usr/lib64/libbsd.so" << LDSCRIPT
 /* GNU ld script */
-OUTPUT_FORMAT(elf64-x86-64)
+OUTPUT_FORMAT($OUTPUT_FORMAT)
 GROUP(libbsd.so.0 AS_NEEDED(-lmd))
 LDSCRIPT
 fi

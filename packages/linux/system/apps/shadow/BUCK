@@ -176,6 +176,39 @@ if [ ! -f "$DESTDIR/usr/sbin/useradd" ]; then
     exit 1
 fi
 
+# Fix PAM configs if PAM is enabled (pam.d directory exists)
+if [ -d "$DESTDIR/etc/pam.d" ]; then
+    # Fix login PAM config - remove pam_console.so and pam_selinux.so which don't exist
+    cat > "$DESTDIR/etc/pam.d/login" << 'LOGINPAM'
+#%PAM-1.0
+# Login PAM configuration (fixed for BuckOS)
+
+auth      optional  pam_securetty.so
+auth      include   system-auth
+
+account   optional  pam_nologin.so
+account   include   system-auth
+
+password  include   system-auth
+
+session   include   system-auth
+session   optional  pam_loginuid.so
+LOGINPAM
+
+    # Also fix su PAM config
+    cat > "$DESTDIR/etc/pam.d/su" << 'SUPAM'
+#%PAM-1.0
+auth      sufficient pam_rootok.so
+auth      include   system-auth
+
+account   include   system-auth
+
+password  include   system-auth
+
+session   include   system-auth
+SUPAM
+fi
+
 echo "✓ Shadow package installed successfully"
 echo "  - chpasswd: $DESTDIR/usr/sbin/chpasswd"
 echo "  - useradd: $DESTDIR/usr/sbin/useradd"

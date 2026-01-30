@@ -12,7 +12,7 @@ autotools_package(
     homepage = "https://www.freedesktop.org/wiki/Software/dbus/",
     license = "AFL-2.1",
     iuse = ["systemd", "doc", "static-libs"],
-    use_defaults = [],
+    use_defaults = ["systemd"],  # Enable systemd integration for dbus.socket/dbus.service
     use_configure = {
         "systemd": "--enable-systemd",
         "-systemd": "--disable-systemd",
@@ -22,13 +22,19 @@ autotools_package(
         "-static-libs": "--disable-static",
     },
     use_deps = {
-        "systemd": ["//packages/linux/system/init/systemd:systemd"],
+        "systemd": [
+            "//packages/linux/system/init/systemd:systemd",
+            "//packages/linux/system/libs/ipc/libcap:libcap",  # libsystemd.so needs libcap
+        ],
     },
     configure_args = [
         "--with-system-socket=/run/dbus/system_bus_socket",
         "--with-console-auth-dir=/run/console",
         "--localstatedir=/var",
         "--runstatedir=/run",
+        # Override systemd unit paths to prevent absolute paths from pkg-config
+        "--with-systemdsystemunitdir=/usr/lib/systemd/system",
+        "--with-systemduserunitdir=/usr/lib/systemd/user",
     ],
     deps = [
         "//packages/linux/system/libs/data/expat:expat",

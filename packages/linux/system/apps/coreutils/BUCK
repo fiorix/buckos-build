@@ -67,6 +67,35 @@ autotools_package(
         "--prefix=/usr",
         "--enable-no-install-program=kill,uptime",
     ],
+    # Fix: coreutils tries to update man pages in source dir during build
+    # The source directory ($S) is read-only in Buck2.
+    # Use out-of-source build by creating a build directory in $WORKDIR
+    src_configure = """
+        # Create build directory outside of read-only source
+        mkdir -p "$WORKDIR/build"
+        cd "$WORKDIR/build"
+
+        # Run configure from build directory, pointing to source
+        "$S/configure" \\
+            --prefix="${EPREFIX:-/usr}" \\
+            --build="${CBUILD:-$(gcc -dumpmachine)}" \\
+            --host="${CHOST:-$(gcc -dumpmachine)}" \\
+            --mandir="${EPREFIX:-/usr}/share/man" \\
+            --infodir="${EPREFIX:-/usr}/share/info" \\
+            --datadir="${EPREFIX:-/usr}/share" \\
+            --sysconfdir="${EPREFIX:-/etc}" \\
+            --localstatedir="${EPREFIX:-/var}" \\
+            --libdir="${EPREFIX:-/usr}/${LIBDIR:-lib64}" \\
+            ${EXTRA_ECONF:-}
+    """,
+    src_compile = """
+        cd "$WORKDIR/build"
+        make -j${MAKEOPTS:-$(nproc)} ${EXTRA_EMAKE:-}
+    """,
+    src_install = """
+        cd "$WORKDIR/build"
+        make DESTDIR="$DESTDIR" ${EXTRA_EMAKE:-} install
+    """,
     deps = [],
     visibility = ["PUBLIC"],
 )
