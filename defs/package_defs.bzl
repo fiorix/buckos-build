@@ -2874,11 +2874,31 @@ ISOCFG
 if [ -n "{include_rootfs}" ] && [ -d "$ROOTFS_DIR" ]; then
     echo "Creating squashfs from rootfs..."
     mkdir -p "$WORK/live"
+
+    # Create a working copy of rootfs to add kernel modules
+    ROOTFS_WORK=$(mktemp -d)
+    cp -a "$ROOTFS_DIR/." "$ROOTFS_WORK/"
+
+    # Copy kernel modules from kernel build to rootfs
+    if [ -d "$KERNEL_DIR/lib/modules" ]; then
+        echo "Copying kernel modules to rootfs..."
+        mkdir -p "$ROOTFS_WORK/lib/modules"
+        cp -a "$KERNEL_DIR/lib/modules/." "$ROOTFS_WORK/lib/modules/"
+        # Run depmod to generate modules.dep
+        KVER=$(ls "$KERNEL_DIR/lib/modules" | head -1)
+        if [ -n "$KVER" ] && command -v depmod >/dev/null 2>&1; then
+            echo "Running depmod for kernel $KVER..."
+            depmod -b "$ROOTFS_WORK" "$KVER" 2>/dev/null || true
+        fi
+    fi
+
     if command -v mksquashfs >/dev/null 2>&1; then
-        mksquashfs "$ROOTFS_DIR" "$WORK/live/filesystem.squashfs" -comp xz -no-progress
+        mksquashfs "$ROOTFS_WORK" "$WORK/live/filesystem.squashfs" -comp xz -no-progress
     else
         echo "Warning: mksquashfs not found, skipping rootfs inclusion"
     fi
+
+    rm -rf "$ROOTFS_WORK"
 fi
 
 # Create the ISO image based on boot mode
