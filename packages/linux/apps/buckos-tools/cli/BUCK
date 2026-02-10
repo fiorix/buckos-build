@@ -1,4 +1,4 @@
-load("//defs:package_defs.bzl", "download_source", "ebuild_package")
+load("//defs:package_defs.bzl", "download_source", "ebuild_package", "get_rust_typed_toolchain_dep")
 
 # Download BuckOS source from GitHub (reuse from installer if in same package group)
 download_source(
@@ -57,9 +57,8 @@ install -D -m 755 target/${CARGO_BUILD_TARGET}/release/buckos-cli \\
 echo "Installed buckos CLI"
 """,
 
-    bdepend = [
-        "toolchains//bootstrap/rust:rust-toolchain",
-    ],
+    _rust_toolchain = get_rust_typed_toolchain_dep(),
+    bdepend = [],
 
     # Runtime dependencies
     depend = [],
