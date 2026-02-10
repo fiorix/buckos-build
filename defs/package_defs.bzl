@@ -20,6 +20,9 @@ load("//defs:fhs_mapping.bzl",
      "get_configure_args_for_layout")
 load("//config:fedora_build_flags.bzl",
      "get_fedora_build_env")
+load("//defs:toolchain_providers.bzl",
+     "GoToolchainInfo",
+     "RustToolchainInfo")
 
 # Bootstrap toolchain target path (for use in package definitions)
 # All packages will use this by default to ensure they link against BuckOS glibc
@@ -54,11 +57,12 @@ def get_bootstrap_toolchain():
             "DEFAULT": BOOTSTRAP_TOOLCHAIN,
         })
 
-# Language toolchain target paths (for Go, Rust, LLVM packages)
-# These are conditionally added based on use_host_toolchain config
-GO_TOOLCHAIN = "toolchains//bootstrap/go:go-toolchain"
-RUST_TOOLCHAIN = "toolchains//bootstrap/rust:rust-toolchain"
+# Language toolchain target paths
 LLVM_TOOLCHAIN = "toolchains//bootstrap/llvm:llvm-toolchain"
+
+# First-class Buck2 toolchain targets (typed provider wrappers)
+GO_BUCKOS_TOOLCHAIN = "toolchains//bootstrap/go:go-buckos-toolchain"
+RUST_BUCKOS_TOOLCHAIN = "toolchains//bootstrap/rust:rust-buckos-toolchain"
 
 # Valid kwargs that can be passed through to ebuild_package_rule
 # Wrapper functions (autotools_package, make_package, cmake_package, etc.) use this
@@ -140,27 +144,23 @@ def _should_use_host_toolchain():
     # Default: use bootstrap toolchain (standalone mode)
     return False
 
-def get_go_toolchain_dep():
+def get_go_typed_toolchain_dep():
     """
-    Returns the Go bootstrap toolchain dependency, or None if host toolchain is enabled.
-
-    When use_host_toolchain config is enabled, returns None so the bootstrap
-    Go toolchain is not added to the dependency graph and host Go is used.
+    Returns the typed Go toolchain dependency (with GoToolchainInfo provider),
+    or None if host toolchain is enabled.
     """
     if _should_use_host_toolchain():
         return None
-    return GO_TOOLCHAIN
+    return GO_BUCKOS_TOOLCHAIN
 
-def get_rust_toolchain_dep():
+def get_rust_typed_toolchain_dep():
     """
-    Returns the Rust bootstrap toolchain dependency, or None if host toolchain is enabled.
-
-    When use_host_toolchain config is enabled, returns None so the bootstrap
-    Rust toolchain is not added to the dependency graph and host Rust is used.
+    Returns the typed Rust toolchain dependency (with RustToolchainInfo provider),
+    or None if host toolchain is enabled.
     """
     if _should_use_host_toolchain():
         return None
-    return RUST_TOOLCHAIN
+    return RUST_BUCKOS_TOOLCHAIN
 
 def get_llvm_toolchain_dep():
     """
@@ -4381,6 +4381,13 @@ def _ebuild_package_impl(ctx: AnalysisContext) -> list[Provider]:
     target_deps = ctx.attrs.depend + bdepend_list + ctx.attrs.rdepend
     dep_dirs = _collect_dep_dirs(target_deps)
 
+    # Append typed language toolchain artifacts to dep_dirs
+    # These flow through the same dep_dirs mechanism that ebuild.sh already scans
+    if ctx.attrs._go_toolchain != None:
+        dep_dirs.append(ctx.attrs._go_toolchain[GoToolchainInfo].goroot)
+    if ctx.attrs._rust_toolchain != None:
+        dep_dirs.append(ctx.attrs._rust_toolchain[RustToolchainInfo].rust_root)
+
     # Collect exec dependencies (build tools for host platform)
     exec_dep_dirs = _collect_dep_dirs(ctx.attrs.exec_bdepend)
 
@@ -5036,6 +5043,9 @@ ebuild_package_rule = rule(
         # Remote execution control - set to True for packages that must run locally
         # (e.g., bootstrap packages that depend on host-specific tools)
         "local_only": attrs.bool(default = False),
+        # Typed language toolchain attrs (first-class Buck2 toolchains)
+        "_go_toolchain": attrs.option(attrs.dep(providers = [GoToolchainInfo]), default = None),
+        "_rust_toolchain": attrs.option(attrs.dep(providers = [RustToolchainInfo]), default = None),
         # External scripts for proper cache invalidation
         "_pkg_config_wrapper": attrs.dep(default = "//defs/scripts:pkg-config-wrapper"),
         "_ebuild_script": attrs.dep(default = "//defs/scripts:ebuild"),
@@ -5107,6 +5117,10 @@ def ebuild_package(
     # Add bootstrap toolchain by default to ensure linking against BuckOS glibc
     use_bootstrap = kwargs.pop("use_bootstrap", True)
     use_host_toolchain = _should_use_host_toolchain()
+
+    # Extract typed toolchain overrides before kwargs filtering
+    rust_toolchain_override = kwargs.pop("_rust_toolchain", None)
+    go_toolchain_override = kwargs.pop("_go_toolchain", None)
 
     # Handle bdepend - it might be a select() or a list
     # If it's a select, we can't modify it, so wrap it in a list concatenation
@@ -5192,6 +5206,8 @@ def ebuild_package(
         src_test = src_test,
         src_install = src_install,
         env = resolved_env,
+        _rust_toolchain = rust_toolchain_override,
+        _go_toolchain = go_toolchain_override,
         **filtered_kwargs,
     )
 
@@ -6715,16 +6731,14 @@ def cargo_package(
     # Add bootstrap toolchain by default to ensure linking against BuckOS glibc
     # get_toolchain_dep() returns None when use_host_toolchain is enabled
     use_bootstrap = kwargs.pop("use_bootstrap", True)
+    rust_typed_toolchain = None
     if use_bootstrap:
         toolchain_dep = get_toolchain_dep()
         if toolchain_dep:
             bdepend.append(toolchain_dep)
 
-        # Add Rust toolchain for Cargo packages
-        # get_rust_toolchain_dep() returns None when use_host_toolchain is enabled
-        rust_toolchain_dep = get_rust_toolchain_dep()
-        if rust_toolchain_dep:
-            bdepend.append(rust_toolchain_dep)
+        # Use typed Rust toolchain provider for Cargo packages
+        rust_typed_toolchain = get_rust_typed_toolchain_dep()
 
     # Handle vendor_deps, cargo_lock_deps, and vendor_tarball for offline builds
     if vendor_deps:
@@ -6808,6 +6822,7 @@ fi
         maintainers = maintainers,
         use_flags = effective_use,
         use_bootstrap = use_bootstrap,
+        _rust_toolchain = rust_typed_toolchain,
         **filtered_kwargs
     )
 
@@ -7331,16 +7346,14 @@ def go_package(
     # Add bootstrap toolchain by default to ensure linking against BuckOS glibc
     # get_toolchain_dep() returns None when use_host_toolchain is enabled
     use_bootstrap = kwargs.pop("use_bootstrap", True)
+    go_typed_toolchain = None
     if use_bootstrap:
         toolchain_dep = get_toolchain_dep()
         if toolchain_dep:
             bdepend.append(toolchain_dep)
 
-        # Add Go toolchain for Go packages
-        # get_go_toolchain_dep() returns None when use_host_toolchain is enabled
-        go_toolchain_dep = get_go_toolchain_dep()
-        if go_toolchain_dep:
-            bdepend.append(go_toolchain_dep)
+        # Use typed Go toolchain provider for Go packages
+        go_typed_toolchain = get_go_typed_toolchain_dep()
 
     # Handle vendor_deps for offline builds (vendor/ directory approach)
     if vendor_deps:
@@ -7434,6 +7447,7 @@ echo "Go library compiled successfully (no binaries to install)"
         maintainers = maintainers,
         use_flags = effective_use,
         use_bootstrap = use_bootstrap,
+        _go_toolchain = go_typed_toolchain,
         **filtered_kwargs
     )
 

@@ -1,4 +1,5 @@
 load("@root//defs:package_defs.bzl", "download_source", "binary_package", "ebuild_package")
+load(":rust_toolchain_rule.bzl", "buckos_rust_toolchain")
 
 # =============================================================================
 # Rust Bootstrap Toolchain
@@ -478,6 +479,26 @@ echo "Rust toolchain (aarch64) assembled in /tools"
     bdepend = [":rust-bootstrap-aarch64"],
     depend = [],
     use_bootstrap = False,
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# First-Class Buck2 Rust Toolchain (typed provider wrapper)
+# =============================================================================
+# Wraps the rust-toolchain ebuild_package output in a toolchain rule that
+# returns RustToolchainInfo, enabling typed provider-based dependency resolution.
+
+buckos_rust_toolchain(
+    name = "rust-buckos-toolchain",
+    toolchain_package = ":rust-toolchain",
+    version = "1.90.0",
+    visibility = ["PUBLIC"],
+)
+
+buckos_rust_toolchain(
+    name = "rust-buckos-toolchain-aarch64",
+    toolchain_package = ":rust-toolchain-aarch64",
+    version = "1.90.0",
     visibility = ["PUBLIC"],
 )
 

@@ -1,4 +1,4 @@
-load("//defs:package_defs.bzl", "download_source", "ebuild_package")
+load("//defs:package_defs.bzl", "download_source", "ebuild_package", "get_rust_typed_toolchain_dep")
 
 # Download BuckOS source from GitHub
 download_source(
@@ -72,9 +72,8 @@ chmod 644 "$DESTDIR/usr/share/applications/buckos-installer.desktop"
 echo "Installed buckos-installer"
 """,
 
-    bdepend = [
-        "toolchains//bootstrap/rust:rust-toolchain",
-    ],
+    _rust_toolchain = get_rust_typed_toolchain_dep(),
+    bdepend = [],
 
     # Runtime dependencies
     depend = [
