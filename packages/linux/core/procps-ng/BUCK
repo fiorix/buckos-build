@@ -21,8 +21,8 @@ autotools_package(
         "static-libs",
     ],
 
-    # Default USE flags
-    use_defaults = [],  # Disabled ncurses due to pkg-config detection issues
+    # Default USE flags - ncurses needed for watch command
+    use_defaults = ["ncurses"],
 
     # Conditional dependencies
     use_deps = {

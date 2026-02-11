@@ -3,6 +3,14 @@ load("//defs:use_flags.bzl", "set_use_flags")
 load("//defs:package_defs.bzl", "binary_package", "rootfs", "initramfs", "qemu_boot_script", "iso_image", "stage3_tarball", "autotools_package")
 
 # =============================================================================
+# Helper files for live environment
+export_file(
+    name = "plasma-env-sh",
+    src = "files/plasma-env.sh",
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
 # Base system files - Essential configuration and scripts
 # Init script for BusyBox init
 genrule(
@@ -539,7 +547,14 @@ if [ "`tty`" = "/dev/tty1" ] && [ -z "$WAYLAND_DISPLAY" ] && [ -z "$DISPLAY" ]; 
     # Create directories if needed
     mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
 
+    # Qt and KDE paths
+    export QT_PLUGIN_PATH="/usr/lib64/plugins:/usr/lib64/qt6/plugins"
+    export QML_IMPORT_PATH="/usr/lib64/qml"
+    export QML2_IMPORT_PATH="/usr/lib64/qml"
+    export XDG_DATA_DIRS="/usr/share:/usr/local/share"
+
     # Start Plasma Wayland session
+    export PLASMA_SKIP_SPLASH=1  # Skip splash screen to avoid KSplash wait timeout
     echo "Starting Plasma Wayland session..."
     exec dbus-run-session startplasma-wayland
 fi
@@ -804,6 +819,7 @@ ln -sf ../run $OUT/var/run
 genrule(
     name = "live-desktop-gen",
     out = "live-desktop",
+    srcs = [":plasma-env-sh"],
     cmd = """
 mkdir -p $OUT/home/live/Desktop
 cat > $OUT/home/live/Desktop/Install-BuckOS.desktop << 'DESKTOPEOF'
@@ -858,6 +874,10 @@ chmod 644 $OUT/home/live/.bash_profile
 
 chown -R 1000:1000 $OUT/home/live 2>/dev/null || true
 
+# Copy debug/env script for manual testing from serial console
+cp $SRCS $OUT/home/live/plasma-env.sh
+chmod +x $OUT/home/live/plasma-env.sh
+
 # Create Qt font directory symlink (Qt looks in /usr/lib/fonts)
 mkdir -p $OUT/usr/lib
 ln -sf ../share/fonts $OUT/usr/lib/fonts
@@ -891,13 +911,23 @@ LOCALEEOF
 # Qt and KDE paths
 cat > $OUT/etc/environment.d/60-kde-paths.conf << 'KDEPATHSEOF'
 # Qt/KDE plugin and QML paths
-# KDE installs QML modules to /usr/lib64/qml, Qt to /usr/lib64/qt6/qml
-QT_PLUGIN_PATH=/usr/lib64/qt6/plugins:/usr/lib64/plugins
-QML_IMPORT_PATH=/usr/lib64/qml:/usr/lib64/qt6/qml
-QML2_IMPORT_PATH=/usr/lib64/qml:/usr/lib64/qt6/qml
+# KDE installs to /usr/lib64/, Qt to /usr/
+QT_PLUGIN_PATH=/usr/lib64/plugins:/usr/plugins
+QML_IMPORT_PATH=/usr/lib64/qml:/usr/qml
+QML2_IMPORT_PATH=/usr/lib64/qml:/usr/qml
 XDG_DATA_DIRS=/usr/share:/usr/local/share
 XDG_CONFIG_DIRS=/etc/xdg
 KDEPATHSEOF
+
+# Force classic boot for Plasma (disable systemd boot)
+# With dbus-run-session, the D-Bus session is isolated from systemd --user,
+# so startplasma-wayland can't communicate with systemd user services.
+# Classic boot runs plasma_session directly which starts plasmashell.
+mkdir -p $OUT/etc/xdg
+cat > $OUT/etc/xdg/startkderc << 'STARTKDEEOF'
+[General]
+systemdBoot=false
+STARTKDEEOF
 
 # XDG runtime directory for user sessions - use profile.d for dynamic $UID
 mkdir -p $OUT/etc/profile.d
@@ -950,6 +980,10 @@ exec /usr/bin/kwin_wayland "${ARGS[@]}"
 KWRAPPER
 chmod +x $OUT/usr/bin/kwin_wayland_wrapper
 cp $OUT/usr/bin/kwin_wayland_wrapper $OUT/usr/sbin/kwin_wayland_wrapper
+
+# Create XDG menu symlink (KDE uses plasma-applications.menu, but some tools expect applications.menu)
+mkdir -p $OUT/etc/xdg/menus
+ln -sf plasma-applications.menu $OUT/etc/xdg/menus/applications.menu
 """,
     visibility = ["PUBLIC"],
 )
@@ -1012,7 +1046,36 @@ ln -sf /usr/lib/systemd/system/polkit.service $OUT/etc/systemd/system/multi-user
 # Enable systemd-logind (required for loginctl and PAM sessions)
 ln -sf /usr/lib/systemd/system/systemd-logind.service $OUT/etc/systemd/system/multi-user.target.wants/systemd-logind.service
 
-# Create a systemd service to start Plasma Wayland on tty1 (no display manager needed)
+# =============================================================================
+# Plasma Wayland Live Session - Startup Flow Documentation
+# =============================================================================
+#
+# This service starts a Plasma Wayland session on tty1 without a display manager.
+#
+# STARTUP CHAIN:
+# 1. systemd starts this service (plasma-wayland-live.service) at graphical.target
+# 2. dbus-run-session creates an isolated D-Bus session bus
+# 3. kwin_wayland starts as the Wayland compositor (DRM backend on real hardware)
+#    - --no-lockscreen: Disables the lock screen for live environment
+#    - --exit-with-session: Runs startplasma-wayland and exits when it exits
+# 4. kwin_wayland launches startplasma-wayland as its session application
+# 5. startplasma-wayland sets up KDE environment variables and either:
+#    a) Uses systemd boot: Starts plasma-workspace-wayland.target (if systemd user available)
+#    b) Uses classic boot: Runs plasma_session directly (fallback for live environments)
+# 6. plasma_session (or systemd targets) starts:
+#    - plasmashell: The desktop shell (panels, desktop, widgets)
+#    - ksmserver: KDE session manager
+#    - Various other Plasma services
+#
+# IMPORTANT: startplasma-wayland must NOT be run directly - it doesn't start kwin.
+# The compositor (kwin_wayland) must be running first, then it launches the session.
+#
+# Environment variables:
+# - XDG_* vars: Required for KDE/Qt to find resources, configs, and data files
+# - QT_PLUGIN_PATH/QML_IMPORT_PATH: Qt plugin locations (Qt6 uses /usr/plugins, /usr/qml)
+# - LIBSEAT_BACKEND=logind: Required for kwin to get seat access via systemd-logind
+# - HOME: Explicit home directory for the live user
+#
 mkdir -p $OUT/usr/lib/systemd/system
 cat > $OUT/usr/lib/systemd/system/plasma-wayland-live.service << 'PLASMASERVICEEOF'
 [Unit]
@@ -1033,17 +1096,32 @@ TTYVTDisallocate=yes
 StandardInput=tty
 StandardOutput=tty
 StandardError=journal
+# XDG environment for KDE/Qt resource discovery
 Environment=XDG_SESSION_TYPE=wayland
 Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XDG_DATA_DIRS=/usr/share:/usr/local/share
+Environment=XDG_CONFIG_DIRS=/etc/xdg
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+# Qt/KDE environment
 Environment=QT_QPA_PLATFORM=wayland
-Environment=QML_IMPORT_PATH=/usr/lib64/qml:/usr/lib64/qt6/qml
-Environment=QT_PLUGIN_PATH=/usr/lib64/qt6/plugins:/usr/lib64/plugins
+Environment=QML_IMPORT_PATH=/usr/lib64/qml:/usr/qml
+Environment=QML2_IMPORT_PATH=/usr/lib64/qml:/usr/qml
+Environment=QT_PLUGIN_PATH=/usr/lib64/plugins:/usr/plugins
+# Seat access via logind (required for kwin to access DRM/input devices)
 Environment=LIBSEAT_BACKEND=logind
+# Skip splash screen for faster boot
+Environment=PLASMA_SKIP_SPLASH=1
+# Explicit home directory
+Environment=HOME=/home/live
+# Setup runtime directory
 ExecStartPre=/bin/mkdir -p /run/user/1000
 ExecStartPre=/bin/chown 1000:1000 /run/user/1000
 ExecStartPre=/bin/chmod 700 /run/user/1000
-ExecStart=/usr/bin/dbus-run-session /usr/bin/startplasma-wayland
+# Build font cache (optional, continues on failure)
+ExecStartPre=-/usr/bin/fc-cache -f
+# Start kwin_wayland as compositor with plasmashell as the session
+# Skip startplasma-wayland/plasma_session since they weren't auto-starting plasmashell
+ExecStart=/usr/bin/dbus-run-session /usr/bin/kwin_wayland --no-lockscreen --exit-with-session /usr/bin/plasmashell
 Restart=on-failure
 RestartSec=3
 
@@ -1626,6 +1704,7 @@ rootfs(
 
         # KDE Plasma Desktop
         "//packages/linux/desktop/kde:kde-plasma",
+        "//packages/linux/desktop/kde:plasma-desktop",  # Provides org.kde.plasma.desktop shell
         "//packages/linux/desktop/kde/apps:konsole",
         "//packages/linux/desktop/kde/apps:dolphin",
         "//packages/linux/desktop/kde/apps:kate",
@@ -1638,6 +1717,8 @@ rootfs(
         "//packages/linux/desktop/kde:krunner",
         "//packages/linux/desktop/kde:kpackage",
         "//packages/linux/desktop/kde:plasma-activities",
+        "//packages/linux/desktop/kde:kactivitymanagerd",
+        "//packages/linux/desktop/kde:breeze",
         "//packages/linux/desktop/kde:breeze-icons",
         "//packages/linux/desktop/kde:kiconthemes",
         # KDE/Graphics libraries (explicit dependencies - not auto-pulled from filegroup)
@@ -1648,6 +1729,12 @@ rootfs(
         "//packages/linux/desktop/kde:kscreenlocker",
         "//packages/linux/desktop/kde:kglobalacceld",
         "//packages/linux/desktop/kde:layer-shell-qt",
+        "//packages/linux/desktop/kde:kquickcharts",
+        "//packages/linux/desktop/kde:kholidays",
+        "//packages/linux/desktop/kde:kirigami-addons",
+        "//packages/linux/desktop/kde:milou",
+        # plasma-integration requires X11 - skip for Wayland-only build
+        # knighttime is new in Plasma 6.5.x - not available in 6.2.4
         "//packages/linux/graphics/libepoxy:libepoxy",
         # Graphics/Display libraries required by KWin
         "//packages/linux/system/libs/graphics/lcms2:lcms2",

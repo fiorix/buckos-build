@@ -823,6 +823,71 @@ cmake_package(
     visibility = ["PUBLIC"],
 )
 
+# Breeze - KDE visual style (window decorations, cursors, widgets)
+download_source(
+    name = "breeze-src",
+    src_uri = "https://download.kde.org/stable/plasma/6.2.4/breeze-6.2.4.tar.xz",
+    sha256 = "4d9613896082f336413abb24ef8f8d86513f7e99a4c0bcdf2f45cd7c5bbd7c20",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "breeze",
+    source = ":breeze-src",
+    version = "6.2.4",
+    description = "Breeze visual style for Plasma",
+    homepage = "https://kde.org/",
+    license = "GPL-2.0+",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DWITH_DECORATIONS=ON",
+        "-DBUILD_QT5=OFF",
+        "-DBUILD_QT6=ON",
+    ],
+    src_prepare = "sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        ":kconfig",
+        ":kconfigwidgets",
+        ":kcolorscheme",
+        ":kcodecs",
+        ":kguiaddons",
+        ":ki18n",
+        ":kiconthemes",
+        ":kwindowsystem",
+        ":kdecoration2",
+        ":kcmutils",
+        ":kirigami",
+        ":kwidgetsaddons",
+        ":kitemviews",
+        ":kxmlgui",
+        ":kglobalaccel",
+        ":karchive",
+        ":breeze-icons",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/system/libs/ipc/dbus:dbus",
+        "//packages/linux/graphics/rendering/wayland:wayland",
+        "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",
+        "//packages/linux/system/libs/data/expat:expat",
+        "//packages/linux/desktop/libdrm:libdrm",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/init/eudev:eudev",
+        "//packages/linux/system/libs/crypto/openssl:openssl",
+    ],
+    visibility = ["PUBLIC"],
+)
+
 # Breeze Icons - KDE icon theme
 download_source(
     name = "breeze-icons-src",
@@ -1075,8 +1140,7 @@ cmake_package(
     ],
     src_prepare = """
 sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
-# Disable QML module - fails linking in cross-compilation
-sed -i '/add_subdirectory.*qml/d' src/CMakeLists.txt || true
+# Keep QML module enabled for Plasma shell
 """,
     src_configure = """
 # Find native wayland-scanner from exec_bdepend and set PKG_CONFIG_PATH
@@ -3402,6 +3466,78 @@ cmake_package(
     visibility = ["PUBLIC"],
 )
 
+# kactivitymanagerd - Activity manager daemon (required for plasmashell)
+download_source(
+    name = "kactivitymanagerd-src",
+    src_uri = "https://download.kde.org/stable/plasma/6.2.4/kactivitymanagerd-6.2.4.tar.xz",
+    sha256 = "17672c65500c731eeb3c43649cf52ecae115adfd1942c24599055ece3e4a90da",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "kactivitymanagerd",
+    source = ":kactivitymanagerd-src",
+    version = "6.2.4",
+    description = "System service to manage user's activities",
+    homepage = "https://kde.org/",
+    license = "GPL-2.0+",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+    ],
+    src_prepare = """
+sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
+# Disable X11-specific VirtualDesktopSwitch plugin (we build Wayland-only)
+sed -i 's/add_subdirectory (virtualdesktopswitch)/#add_subdirectory (virtualdesktopswitch)/' src/service/plugins/CMakeLists.txt || true
+# Remove KX11Extras usage from Resources.cpp (X11-only feature)
+sed -i 's/#include <KX11Extras>/\\/\\/#include <KX11Extras>/' src/service/Resources.cpp || true
+sed -i 's/connect(KX11Extras::self/\\/\\/connect(KX11Extras::self/' src/service/Resources.cpp || true
+""",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        ":kconfig",
+        ":kcrash",
+        ":kdbusaddons",
+        ":kglobalaccel",
+        ":kguiaddons",
+        ":ki18n",
+        ":kio",
+        ":kservice",
+        ":kxmlgui",
+        ":kwidgetsaddons",
+        ":kwindowsystem",
+        ":kbookmarks",
+        ":kcompletion",
+        ":kitemviews",
+        ":kjobwidgets",
+        ":solid",
+        ":kiconthemes",
+        ":kcolorscheme",
+        ":kconfigwidgets",
+        ":kcodecs",
+        "//packages/linux/dev-libs/boost:boost",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/system/libs/ipc/dbus:dbus",
+        "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",
+        "//packages/linux/graphics/rendering/wayland:wayland",
+        "//packages/linux/desktop/libdrm:libdrm",
+        "//packages/linux/system/libs/data/expat:expat",
+        "//packages/linux/system/init/eudev:eudev",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+    ],
+    visibility = ["PUBLIC"],
+)
+
 # libplasma - Core Plasma library (provides PlasmaQuick)
 download_source(
     name = "libplasma-src",
@@ -3588,9 +3724,9 @@ cmake_package(
     ],
     src_prepare = """
 sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
-# Disable tests and QML declarative plugin during cross-compilation
+# Disable tests during cross-compilation
 sed -i 's/^add_subdirectory(tests)/#add_subdirectory(tests)/' CMakeLists.txt || true
-sed -i 's/^add_subdirectory(declarative)/#add_subdirectory(declarative)/' src/CMakeLists.txt || true
+# Keep QML declarative module enabled for Plasma shell
 # Fix LayerShellQtInterface to be explicitly SHARED library
 sed -i 's/^add_library(LayerShellQtInterface)/add_library(LayerShellQtInterface SHARED)/' src/CMakeLists.txt || true
 """,
@@ -4467,7 +4603,7 @@ cmake_package(
         "-DCMAKE_DISABLE_FIND_PACKAGE_KPipeWire=ON",
         "-DCMAKE_DISABLE_FIND_PACKAGE_AppStreamQt=ON",
         "-DCMAKE_DISABLE_FIND_PACKAGE_KF6Holidays=ON",
-        "-DCMAKE_DISABLE_FIND_PACKAGE_Fontconfig=ON",
+        # Fontconfig enabled - we have it
         "-DCMAKE_DISABLE_FIND_PACKAGE_Breeze=ON",
         "-DGLIBC_LOCALE_GEN=OFF",
     ],
@@ -4610,6 +4746,9 @@ STUB
         "//packages/linux/system/libs/input/libinput:libinput",
         "//packages/linux/system/libs/utility/icu:icu",
         "//packages/linux/system/libs/compression/zstd:zstd",  # Qt6Core depends on zstd
+        # Fontconfig for font rendering
+        "//packages/linux/system/libs/font/fontconfig:fontconfig",
+        "//packages/linux/system/libs/font/freetype:freetype",
     ],
 
     visibility = ["PUBLIC"],
@@ -4885,7 +5024,291 @@ filegroup(
         ":kwallet",
         ":kunitconversion",
         ":prison",
+        ":kquickcharts",
+        # plasma-integration requires X11 - skip for Wayland-only
     ],
     default_target_platform = "//platforms:linux-target",
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Additional Runtime Dependencies for Plasma Shell
+# =============================================================================
+
+# KQuickCharts - KDE Quick Charts Framework
+download_source(
+    name = "kquickcharts-src",
+    src_uri = "https://download.kde.org/stable/frameworks/6.22/kquickcharts-6.22.0.tar.xz",
+    sha256 = "10e82ca86ae8e22910a1e58db9fc647335e9335bd9fad3c713c39f79479f14a4",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "kquickcharts",
+    source = ":kquickcharts-src",
+    version = "6.22.0",
+    description = "KDE Quick Charts Framework",
+    homepage = "https://kde.org/",
+    license = "LGPL-2.1+",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+    ],
+    src_prepare = "sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        ":kconfig",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/libs/ipc/dbus:dbus",
+        "//packages/linux/system/init/systemd:systemd",
+        "//packages/linux/system/libs/ipc/libcap:libcap",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Plasma Integration - Qt/Plasma integration library
+download_source(
+    name = "plasma-integration-src",
+    src_uri = "https://download.kde.org/stable/plasma/6.2.4/plasma-integration-6.2.4.tar.xz",
+    sha256 = "8d3d9b022aef411a36aada564931aad4ec81df8b8ef6e3f4091e362522295cc7",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "plasma-integration",
+    source = ":plasma-integration-src",
+    version = "6.2.4",
+    description = "Qt Platform Theme for Plasma",
+    homepage = "https://kde.org/",
+    license = "LGPL-2.0+",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DBUILD_QT5=OFF",  # We only have Qt6
+        "-DWITH_X11=OFF",  # Wayland-only build
+        "-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON",  # Force disable X11
+        "-DCMAKE_DISABLE_FIND_PACKAGE_XCB=ON",
+        "-DCMAKE_DISABLE_FIND_PACKAGE_XDGDesktopPortalKDE=ON",  # Optional dep
+        "-DCMAKE_DISABLE_FIND_PACKAGE_FontHack=ON",  # Optional dep
+        "-DCMAKE_DISABLE_FIND_PACKAGE_FontNotoSans=ON",
+        "-DCMAKE_DISABLE_FIND_PACKAGE_FontNotoColorEmoji=ON",
+    ],
+    src_prepare = """
+sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
+# Remove qt5 subdirectory (we only build Qt6)
+sed -i '/add_subdirectory.*qt5/d' CMakeLists.txt || true
+# Remove X11/XCB references from platformtheme (Wayland-only)
+sed -i '/XCB::XCB/d' qt6/src/platformtheme/CMakeLists.txt || true
+sed -i '/X11::/d' qt6/src/platformtheme/CMakeLists.txt || true
+# Comment out X11 includes
+sed -i 's/#include <X11/#\\/\\/#include <X11/g' qt6/src/platformtheme/*.cpp 2>/dev/null || true
+sed -i 's/#include <xcb/#\\/\\/#include <xcb/g' qt6/src/platformtheme/*.cpp 2>/dev/null || true
+""",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        ":kconfig",
+        ":kcolorscheme",
+        ":kconfigwidgets",
+        ":kcodecs",
+        ":ki18n",
+        ":kiconthemes",
+        ":kio",
+        ":kitemviews",  # Required for KF6KIO
+        ":kguiaddons",  # Required for KF6XmlGui
+        ":knotifications",
+        ":kstatusnotifieritem",
+        ":kwindowsystem",
+        ":kxmlgui",
+        ":kwidgetsaddons",
+        ":kcrash",
+        ":kdbusaddons",
+        ":kcompletion",
+        ":kjobwidgets",
+        ":solid",
+        ":kservice",
+        ":kbookmarks",
+        ":breeze",
+        ":libplasma",
+        ":plasma-wayland-protocols",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/graphics/rendering/wayland:wayland",
+        "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/libs/data/expat:expat",
+        "//packages/linux/desktop/libdrm:libdrm",
+        "//packages/linux/system/libs/ipc/dbus:dbus",
+        "//packages/linux/system/init/systemd:systemd",
+        "//packages/linux/system/libs/ipc/libcap:libcap",
+        "//packages/linux/system/init/eudev:eudev",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# KHolidays - Library for holiday and special event handling
+download_source(
+    name = "kholidays-src",
+    src_uri = "https://download.kde.org/stable/frameworks/6.22/kholidays-6.22.0.tar.xz",
+    sha256 = "39b7f1c713d6c5ae225bfa18a6dece20ff7a7f4c325a0c6fc4a48cf3e4e0a690",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "kholidays",
+    source = ":kholidays-src",
+    version = "6.22.0",
+    description = "Library to determine holidays and special events",
+    homepage = "https://kde.org/",
+    license = "LGPL-2.1+",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+    ],
+    src_prepare = """
+sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
+""",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/graphics/rendering/wayland:wayland",
+        "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Kirigami Addons - Visual end user components for Kirigami
+download_source(
+    name = "kirigami-addons-src",
+    src_uri = "https://download.kde.org/stable/kirigami-addons/kirigami-addons-1.10.0.tar.xz",
+    sha256 = "c98f92bf7c452e12f6dc403404215413db3959fe904ad830ead0db6bb09b3d11",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "kirigami-addons",
+    source = ":kirigami-addons-src",
+    version = "1.10.0",
+    description = "Visual end user components for Kirigami applications",
+    homepage = "https://kde.org/",
+    license = "LGPL-2.1+",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+    ],
+    src_prepare = """
+sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
+""",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        ":kconfig",
+        ":kcolorscheme",
+        ":kcrash",
+        ":kglobalaccel",
+        ":kguiaddons",
+        ":ki18n",
+        ":kiconthemes",
+        ":kirigami",
+        ":libplasma",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/graphics/rendering/wayland:wayland",
+        "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Milou - Search application built on top of KRunner
+download_source(
+    name = "milou-src",
+    src_uri = "https://download.kde.org/Attic/plasma/6.2.4/milou-6.2.4.tar.xz",
+    sha256 = "b47a635904a77aa82fb02d96a0261000cc95da01d07498ea9f29d4c0743775f9",
+    signature_required = False,
+)
+
+cmake_package(
+    name = "milou",
+    source = ":milou-src",
+    version = "6.2.4",
+    description = "Dedicated search application built on top of KRunner",
+    homepage = "https://kde.org/",
+    license = "GPL-2 LGPL-2.1",
+    cmake_args = [
+        "-DCMAKE_INSTALL_PREFIX=/usr",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+    ],
+    src_prepare = """
+sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' CMakeLists.txt || true
+""",
+    src_configure = KDE_ZSTD_LDFLAGS + KDE_HOST_LD_SETUP + KDE_CMAKE_CONFIGURE,
+    src_compile = KDE_HOST_LD_SETUP + "cmake --build \"$S/build\" -j${MAKEOPTS:-$(nproc)}\n",
+    deps = [
+        "//packages/linux/desktop/qt:qt6",
+        "//packages/linux/desktop/kde/ecm:extra-cmake-modules",
+        ":kcoreaddons",
+        ":kconfig",
+        ":ki18n",
+        ":kpackage",
+        ":krunner",
+        ":ksvg",
+        ":kwindowsystem",
+        ":kirigami",
+        ":kcolorscheme",
+        ":kconfigwidgets",
+        ":kitemmodels",
+        ":kservice",
+        ":kwidgetsaddons",
+        ":libplasma",
+        "//packages/linux/dev-libs/glib:glib",
+        "//packages/linux/dev-libs/misc/double-conversion:double-conversion",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/desktop/mesa:mesa",
+        "//packages/linux/graphics/rendering/wayland:wayland",
+        "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+    ],
     visibility = ["PUBLIC"],
 )
