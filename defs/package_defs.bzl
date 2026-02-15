@@ -2188,6 +2188,57 @@ initramfs = rule(
     },
 )
 
+def _dracut_initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
+    """Create an initramfs using dracut with dmsquash-live module for live boot."""
+    initramfs_file = ctx.actions.declare_output(ctx.attrs.name + ".img")
+
+    # Get kernel directory (contains vmlinuz and lib/modules)
+    kernel_dir = ctx.attrs.kernel[DefaultInfo].default_outputs[0]
+
+    # Get dracut package
+    dracut_dir = ctx.attrs.dracut[DefaultInfo].default_outputs[0]
+
+    # Get base rootfs with systemd, udev, etc.
+    rootfs_dir = ctx.attrs.rootfs[DefaultInfo].default_outputs[0]
+
+    # Get the external script
+    create_script = ctx.attrs.create_script[DefaultInfo].default_outputs[0]
+
+    # Kernel version (extracted from kernel dir or provided)
+    kver = ctx.attrs.kernel_version
+
+    # Compression
+    compress = ctx.attrs.compression
+
+    ctx.actions.run(
+        cmd_args([
+            create_script,
+            kernel_dir,
+            dracut_dir,
+            rootfs_dir,
+            initramfs_file.as_output(),
+            kver,
+            compress,
+        ]),
+        category = "dracut_initramfs",
+        identifier = ctx.attrs.name,
+    )
+
+    return [DefaultInfo(default_output = initramfs_file)]
+
+dracut_initramfs = rule(
+    impl = _dracut_initramfs_impl,
+    attrs = {
+        "kernel": attrs.dep(),
+        "dracut": attrs.dep(),
+        "rootfs": attrs.dep(),
+        "create_script": attrs.dep(default = "//defs/scripts:create-dracut-initramfs"),
+        "kernel_version": attrs.string(default = ""),
+        "add_modules": attrs.list(attrs.string(), default = ["dmsquash-live", "livenet"]),
+        "compression": attrs.string(default = "gzip"),
+    },
+)
+
 def _qemu_boot_script_impl(ctx: AnalysisContext) -> list[Provider]:
     """Generate a QEMU boot script for testing."""
     boot_script = ctx.actions.declare_output(ctx.attrs.name + ".sh")
@@ -2926,6 +2977,16 @@ menuentry "BuckOS Linux" {{
     initrd /boot/initramfs.img
 }}
 
+menuentry "BuckOS Linux (Safe Mode - no graphics)" {{
+    linux /boot/vmlinuz {kernel_args} nomodeset
+    initrd /boot/initramfs.img
+}}
+
+menuentry "BuckOS Linux (Debug Mode)" {{
+    linux /boot/vmlinuz {kernel_args} debug ignore_loglevel earlyprintk=vga,keep
+    initrd /boot/initramfs.img
+}}
+
 menuentry "BuckOS Linux (recovery mode)" {{
     linux /boot/vmlinuz {kernel_args} single
     initrd /boot/initramfs.img
@@ -2943,6 +3004,12 @@ LABEL buckos
     LINUX /boot/vmlinuz
     INITRD /boot/initramfs.img
     APPEND {kernel_args}
+
+LABEL safe
+    MENU LABEL BuckOS Linux (Safe Mode - no graphics)
+    LINUX /boot/vmlinuz
+    INITRD /boot/initramfs.img
+    APPEND {kernel_args} nomodeset
 
 LABEL recovery
     MENU LABEL BuckOS Linux (recovery mode)
@@ -3093,7 +3160,14 @@ if command -v xorriso >/dev/null 2>&1; then
                 GRUB_MKIMAGE="grub-mkimage"
             fi
             if [ -n "$GRUB_MKIMAGE" ]; then
+                # Create early config to search for ISO and load main config
+                cat > "$WORK/boot/grub/early.cfg" << 'EARLYCFG'
+search --no-floppy --set=root --label BUCKOS_LIVE
+set prefix=($root)/boot/grub
+configfile $prefix/grub.cfg
+EARLYCFG
                 $GRUB_MKIMAGE -o "$WORK/EFI/BOOT/$EFI_BOOT_FILE" -O $GRUB_FORMAT -p /boot/grub \\
+                    -c "$WORK/boot/grub/early.cfg" \\
                     part_gpt part_msdos fat iso9660 normal boot linux configfile loopback chain \\
                     efifwsetup efi_gop ls search search_label search_fs_uuid search_fs_file \\
                     gfxterm gfxterm_background gfxterm_menu test all_video loadenv exfat ext2 ntfs serial \\
@@ -3130,7 +3204,14 @@ if command -v xorriso >/dev/null 2>&1; then
                 GRUB_MKIMAGE="grub-mkimage"
             fi
             if [ -n "$GRUB_MKIMAGE" ]; then
+                # Create early config to search for ISO and load main config
+                cat > "$WORK/boot/grub/early.cfg" << 'EARLYCFG'
+search --no-floppy --set=root --label BUCKOS_LIVE
+set prefix=($root)/boot/grub
+configfile $prefix/grub.cfg
+EARLYCFG
                 $GRUB_MKIMAGE -o "$WORK/EFI/BOOT/$EFI_BOOT_FILE" -O $GRUB_FORMAT -p /boot/grub \\
+                    -c "$WORK/boot/grub/early.cfg" \\
                     part_gpt part_msdos fat iso9660 normal boot linux configfile loopback chain \\
                     efifwsetup efi_gop ls search search_label search_fs_uuid search_fs_file \\
                     gfxterm gfxterm_background gfxterm_menu test all_video loadenv exfat ext2 ntfs serial \\

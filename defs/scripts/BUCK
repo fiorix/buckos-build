@@ -102,6 +102,21 @@ export_file(
     visibility = ["PUBLIC"],
 )
 
+# Static busybox live init script - POSIX sh compatible for static busybox initramfs
+# This is used as /init inside the initramfs for live boot with static busybox
+export_file(
+    name = "busybox-live-init",
+    src = "busybox-live-init.sh",
+    visibility = ["PUBLIC"],
+)
+
+# Dracut initramfs creation script - creates initramfs with dmsquash-live module
+export_file(
+    name = "create-dracut-initramfs",
+    src = "create-dracut-initramfs.sh",
+    visibility = ["PUBLIC"],
+)
+
 # Live init script - alternative init script for live boot
 export_file(
     name = "live-init",
@@ -113,5 +128,30 @@ export_file(
 export_file(
     name = "sway-init",
     src = "sway-init",
+    visibility = ["PUBLIC"],
+)
+
+# ============================================================================
+# Systemd initrd units for live boot
+# ============================================================================
+
+# Service to find and mount live media
+export_file(
+    name = "initrd-live-media-service",
+    src = "initrd-live-media.service",
+    visibility = ["PUBLIC"],
+)
+
+# Script called by initrd-live-media.service
+export_file(
+    name = "initrd-live-media-script",
+    src = "initrd-live-media.sh",
+    visibility = ["PUBLIC"],
+)
+
+# Mount unit for sysroot (live overlay)
+export_file(
+    name = "initrd-live-sysroot-mount",
+    src = "initrd-live-sysroot.mount",
     visibility = ["PUBLIC"],
 )

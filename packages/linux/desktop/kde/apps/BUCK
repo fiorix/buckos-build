@@ -127,6 +127,10 @@ _KDE_COMMON_DEPS = [
     "//packages/linux/system/libs/font/freetype:freetype",
     "//packages/linux/system/libs/font/fontconfig:fontconfig",
     "//packages/linux/desktop/mesa:mesa",
+    # Mesa's radeonsi driver depends on LLVM and elfutils; LLVM depends on libxml2
+    "//packages/linux/core/llvm:llvm",
+    "//packages/linux/dev-libs/elfutils:elfutils",
+    "//packages/linux/system/libs/data/libxml2:libxml2",
     "//packages/linux/desktop/libdrm:libdrm",
     "//packages/linux/graphics/rendering/wayland:wayland",
     "//packages/linux/system/libs/input/libxkbcommon:libxkbcommon",

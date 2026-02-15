@@ -161,23 +161,18 @@ set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
 # Boot entries
-menuentry "BuckOS Live - Start Live Session" {
+menuentry "BuckOS Live" {
     linux /boot/vmlinuz $KERNEL_ARGS init=/sbin/init root=live:LABEL=$VOLUME_LABEL
     initrd /boot/initramfs.img
 }
 
-menuentry "BuckOS Live - Start Installer Directly" {
-    linux /boot/vmlinuz $KERNEL_ARGS init=/sbin/init root=live:LABEL=$VOLUME_LABEL autoinstall
-    initrd /boot/initramfs.img
-}
-
-menuentry "BuckOS Live - Safe Mode (no graphics drivers)" {
+menuentry "BuckOS Live (Safe Mode)" {
     linux /boot/vmlinuz $KERNEL_ARGS init=/sbin/init root=live:LABEL=$VOLUME_LABEL nomodeset
     initrd /boot/initramfs.img
 }
 
-menuentry "BuckOS Live - Debug Mode" {
-    linux /boot/vmlinuz debug loglevel=7 init=/sbin/init root=live:LABEL=$VOLUME_LABEL
+menuentry "BuckOS Live (Serial Console)" {
+    linux /boot/vmlinuz $KERNEL_ARGS console=tty0 console=ttyS0,115200 init=/sbin/init root=live:LABEL=$VOLUME_LABEL
     initrd /boot/initramfs.img
 }
 
@@ -197,29 +192,23 @@ UI menu.c32
 MENU TITLE BuckOS Live System
 
 LABEL live
-    MENU LABEL BuckOS Live - Start Live Session
+    MENU LABEL BuckOS Live
     MENU DEFAULT
     LINUX /boot/vmlinuz
     INITRD /boot/initramfs.img
     APPEND $KERNEL_ARGS init=/sbin/init root=live:LABEL=$VOLUME_LABEL
 
-LABEL installer
-    MENU LABEL BuckOS Live - Start Installer Directly
-    LINUX /boot/vmlinuz
-    INITRD /boot/initramfs.img
-    APPEND $KERNEL_ARGS init=/sbin/init root=live:LABEL=$VOLUME_LABEL autoinstall
-
 LABEL safe
-    MENU LABEL BuckOS Live - Safe Mode (no graphics drivers)
+    MENU LABEL BuckOS Live (Safe Mode)
     LINUX /boot/vmlinuz
     INITRD /boot/initramfs.img
     APPEND $KERNEL_ARGS init=/sbin/init root=live:LABEL=$VOLUME_LABEL nomodeset
 
-LABEL debug
-    MENU LABEL BuckOS Live - Debug Mode
+LABEL serial
+    MENU LABEL BuckOS Live (Serial Console)
     LINUX /boot/vmlinuz
     INITRD /boot/initramfs.img
-    APPEND debug loglevel=7 init=/sbin/init root=live:LABEL=$VOLUME_LABEL
+    APPEND $KERNEL_ARGS console=tty0 console=ttyS0,115200 init=/sbin/init root=live:LABEL=$VOLUME_LABEL
 
 LABEL local
     MENU LABEL Boot from local disk

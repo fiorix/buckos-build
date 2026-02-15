@@ -6,7 +6,7 @@ load("//defs:package_defs.bzl", "download_source", "meson_package")
 
 meson_package(
     name = "libdrm",
-    version = "2.4.120",
+    version = "2.4.131",
     iuse = [
         "video_cards_intel",
         "video_cards_radeon",
@@ -51,9 +51,8 @@ meson_package(
         "video_cards_etnaviv": "-Detnaviv=enabled",
         "-video_cards_etnaviv": "-Detnaviv=disabled",
     },
-    src_uri = "https://dri.freedesktop.org/libdrm/libdrm-2.4.120.tar.xz",
-    sha256 = "3bf55363f76c7250946441ab51d3a6cc0ae518055c0ff017324ab76cdefb327a",
-    signature_sha256 = "67a6b2740e2b7fc358b196c721c26a8fabe45fabb0fb737b44933016b7d46ed1",
+    src_uri = "https://dri.freedesktop.org/libdrm/libdrm-2.4.131.tar.xz",
+    sha256 = "45ba9983b51c896406a3d654de81d313b953b76e6391e2797073d543c5f617d5",
     signature_required = False,
     description = "Direct Rendering Manager library",
     homepage = "https://dri.freedesktop.org/",

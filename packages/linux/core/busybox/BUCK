@@ -1,4 +1,4 @@
-load("//defs:package_defs.bzl", "download_source", "autotools_package")
+load("//defs:package_defs.bzl", "download_source", "autotools_package", "ebuild_package")
 load("//defs:use_flags.bzl", "set_use_flags")
 
 # Download source - explicitly created with PUBLIC visibility for reuse
@@ -8,6 +8,188 @@ download_source(
     src_uri = "https://github.com/mirror/busybox/archive/refs/tags/1_36_1.tar.gz",
     sha256 = "ea5494846c51d946e5e801d1c099b438f683af8147e0be24ca4001073143110f",
     signature_required = False,
+    visibility = ["PUBLIC"],
+)
+
+# Static busybox for initramfs - includes all applets needed for live boot
+# This is fully statically linked so it doesn't depend on glibc
+ebuild_package(
+    name = "busybox-static",
+    source = ":busybox-src",
+    version = "1.36.1",
+    description = "Static busybox for initramfs with all essential applets",
+    homepage = "https://busybox.net/",
+    license = "GPL-2.0",
+    deps = [],  # No deps - fully static
+    pre_configure = """
+export KCONFIG_NOTIMESTAMP=1
+
+# Start with allnoconfig (all disabled) for minimal build
+make allnoconfig > /dev/null 2>&1
+
+# Create minimal config with only what we need for initramfs
+cat > .config << 'EOF'
+# Basic settings
+CONFIG_HAVE_DOT_CONFIG=y
+CONFIG_PLATFORM_LINUX=y
+CONFIG_FEATURE_BUFFERS_USE_MALLOC=y
+CONFIG_SHOW_USAGE=y
+CONFIG_FEATURE_VERBOSE_USAGE=y
+CONFIG_LONG_OPTS=y
+
+# Static build - no shared libraries needed
+CONFIG_STATIC=y
+
+# Disable problematic features
+# CONFIG_PAM is not set
+# CONFIG_SELINUX is not set
+# CONFIG_TC is not set
+# CONFIG_FEATURE_PREFER_APPLETS is not set
+# CONFIG_FEATURE_SH_STANDALONE is not set
+
+# Shell - use ash (lightweight POSIX shell)
+CONFIG_ASH=y
+CONFIG_ASH_BASH_COMPAT=y
+CONFIG_ASH_JOB_CONTROL=y
+CONFIG_ASH_ALIAS=y
+CONFIG_ASH_ECHO=y
+CONFIG_ASH_PRINTF=y
+CONFIG_ASH_TEST=y
+CONFIG_ASH_GETOPTS=y
+CONFIG_ASH_CMDCMD=y
+
+# Core utilities for init
+CONFIG_CAT=y
+CONFIG_CHROOT=y
+CONFIG_CP=y
+CONFIG_DATE=y
+CONFIG_DD=y
+CONFIG_ECHO=y
+CONFIG_FALSE=y
+CONFIG_LN=y
+CONFIG_LS=y
+CONFIG_FEATURE_LS_TIMESTAMPS=y
+CONFIG_FEATURE_LS_SORTFILES=y
+CONFIG_MKDIR=y
+CONFIG_MKNOD=y
+CONFIG_MV=y
+CONFIG_PWD=y
+CONFIG_RM=y
+CONFIG_RMDIR=y
+CONFIG_SLEEP=y
+CONFIG_TEST=y
+CONFIG_TEST1=y
+CONFIG_TEST2=y
+CONFIG_TRUE=y
+CONFIG_UNAME=y
+
+# Mount/filesystem utilities
+CONFIG_MOUNT=y
+CONFIG_FEATURE_MOUNT_LOOP=y
+CONFIG_FEATURE_MOUNT_FLAGS=y
+CONFIG_UMOUNT=y
+CONFIG_LOSETUP=y
+CONFIG_BLKID=y
+CONFIG_FEATURE_BLKID_TYPE=y
+CONFIG_FINDFS=y
+CONFIG_MOUNTPOINT=y
+
+# Init/process utilities
+CONFIG_SWITCH_ROOT=y
+CONFIG_HALT=y
+CONFIG_POWEROFF=y
+CONFIG_REBOOT=y
+CONFIG_KILL=y
+CONFIG_PIDOF=y
+CONFIG_PS=y
+CONFIG_FEATURE_PS_WIDE=y
+
+# TTY/console
+CONFIG_CLEAR=y
+CONFIG_RESET=y
+
+# Misc utilities for debugging
+CONFIG_DMESG=y
+CONFIG_FEATURE_DMESG_PRETTY=y
+
+# Compression (for cpio)
+CONFIG_CPIO=y
+CONFIG_FEATURE_CPIO_O=y
+CONFIG_FEATURE_CPIO_P=y
+CONFIG_GUNZIP=y
+CONFIG_ZCAT=y
+EOF
+
+# Regenerate with our settings
+yes "" | make oldconfig > /dev/null 2>&1
+
+echo "Generated minimal static busybox config for initramfs"
+""",
+    src_configure = """
+# Busybox uses Kconfig - no configure script needed
+echo "Busybox configuration done in pre_configure"
+""",
+    src_compile = """
+# Build with static flags
+make -j$(nproc) \\
+    CROSS_COMPILE="${CROSS_COMPILE:-}" \\
+    CC="${CC:-gcc}" \\
+    HOSTCC="${HOSTCC:-gcc}" \\
+    LDFLAGS="-static"
+""",
+    src_install = """
+# Install busybox binary
+mkdir -p "$DESTDIR/bin" "$DESTDIR/sbin"
+cp busybox "$DESTDIR/bin/busybox"
+chmod 755 "$DESTDIR/bin/busybox"
+
+# Create symlinks for the applets we enabled
+# Shell
+ln -sf busybox "$DESTDIR/bin/sh"
+ln -sf busybox "$DESTDIR/bin/ash"
+
+# Core utilities
+for cmd in cat cp date dd echo false ln ls mkdir mknod mv pwd rm rmdir sleep test true uname; do
+    ln -sf busybox "$DESTDIR/bin/$cmd"
+done
+ln -sf busybox "$DESTDIR/bin/["
+
+# Mount/filesystem (in sbin)
+for cmd in mount umount losetup blkid findfs; do
+    ln -sf /bin/busybox "$DESTDIR/sbin/$cmd"
+done
+ln -sf /bin/busybox "$DESTDIR/bin/mountpoint"
+
+# Init utilities (in sbin)
+for cmd in switch_root halt poweroff reboot; do
+    ln -sf /bin/busybox "$DESTDIR/sbin/$cmd"
+done
+
+# Process utilities
+ln -sf busybox "$DESTDIR/bin/kill"
+ln -sf busybox "$DESTDIR/bin/pidof"
+ln -sf busybox "$DESTDIR/bin/ps"
+
+# TTY utilities
+ln -sf busybox "$DESTDIR/bin/clear"
+ln -sf busybox "$DESTDIR/bin/reset"
+
+# Misc
+ln -sf busybox "$DESTDIR/bin/dmesg"
+ln -sf busybox "$DESTDIR/bin/cpio"
+ln -sf busybox "$DESTDIR/bin/gunzip"
+ln -sf busybox "$DESTDIR/bin/zcat"
+ln -sf busybox "$DESTDIR/bin/chroot"
+
+# Verify it's actually static
+echo "Checking if busybox is static..."
+if file "$DESTDIR/bin/busybox" | grep -q "statically linked"; then
+    echo "SUCCESS: busybox is statically linked"
+else
+    echo "Checking with ldd..."
+    ldd "$DESTDIR/bin/busybox" 2>&1 || echo "ldd not available or not a dynamic executable"
+fi
+""",
     visibility = ["PUBLIC"],
 )
 

@@ -1,0 +1,117 @@
+load("//defs:package_defs.bzl", "cmake_package")
+
+# =============================================================================
+# libclc - OpenCL C Library
+# =============================================================================
+#
+# libclc is part of the LLVM project and provides implementations of OpenCL C
+# library functions for various GPU targets. It's required by mesa for OpenCL
+# and compute shader support.
+#
+# The library produces LLVM bitcode (.bc) files that get linked into mesa.
+
+# Custom configure that points to libclc/ subdirectory in LLVM source
+LIBCLC_SRC_CONFIGURE = """
+rm -rf "$S/build"
+mkdir -p "$S/build"
+
+# Build LD_LIBRARY_PATH and rpath-link flags for LLVM dependencies
+# clang needs these to find shared libraries at runtime and link time
+_EXTRA_LDFLAGS=""
+_EXTRA_LD_LIBRARY_PATH=""
+IFS=':' read -ra _DEP_ARRAY <<< "${DEP_BASE_DIRS:-}"
+for _dep in "${_DEP_ARRAY[@]}"; do
+    for _libdir in "$_dep/usr/lib64" "$_dep/usr/lib" "$_dep/lib64" "$_dep/lib"; do
+        if [ -d "$_libdir" ]; then
+            _EXTRA_LDFLAGS="$_EXTRA_LDFLAGS -Wl,-rpath-link,$_libdir"
+            _EXTRA_LD_LIBRARY_PATH="$_libdir:$_EXTRA_LD_LIBRARY_PATH"
+        fi
+    done
+done
+export LDFLAGS="${LDFLAGS:-} $_EXTRA_LDFLAGS"
+export LD_LIBRARY_PATH="$_EXTRA_LD_LIBRARY_PATH${LD_LIBRARY_PATH:-}"
+echo "LDFLAGS=$LDFLAGS"
+echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+
+# Find clang from the LLVM dependency and add to PATH
+IFS=':' read -ra _DEP_ARRAY <<< "${DEP_BASE_DIRS:-}"
+for _dep in "${_DEP_ARRAY[@]}"; do
+    if [ -x "$_dep/usr/bin/clang" ]; then
+        export PATH="$_dep/usr/bin:$PATH"
+        echo "Found clang: $_dep/usr/bin/clang"
+        break
+    fi
+done
+
+if ! command -v clang >/dev/null 2>&1; then
+    echo "ERROR: clang not found in PATH"
+    exit 1
+fi
+
+# Configure libclc with targets needed for mesa
+# For radeonsi (AMD GCN/RDNA GPUs):
+# - amdgcn-mesa-mesa3d: AMD GCN for radeonsi in mesa
+# - amdgcn--amdhsa: AMD HSA runtime
+# Note: SPIR-V targets require spirv-tools which we don't have
+cmake \\
+    -S "$S/libclc" \\
+    -B "$S/build" \\
+    -DCMAKE_INSTALL_PREFIX="${EPREFIX:-/usr}" \\
+    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}" \\
+    -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS:-}" \\
+    -DCMAKE_SHARED_LINKER_FLAGS="${LDFLAGS:-}" \\
+    -DLIBCLC_TARGETS_TO_BUILD="amdgcn-mesa-mesa3d;amdgcn--amdhsa;clspv--;clspv64--" \\
+    ${CMAKE_EXTRA_ARGS:-}
+"""
+
+# Custom compile with LD_LIBRARY_PATH for clang
+LIBCLC_SRC_COMPILE = """
+# Build LD_LIBRARY_PATH and rpath-link flags for LLVM dependencies
+_EXTRA_LDFLAGS=""
+_EXTRA_LD_LIBRARY_PATH=""
+IFS=':' read -ra _DEP_ARRAY <<< "${DEP_BASE_DIRS:-}"
+for _dep in "${_DEP_ARRAY[@]}"; do
+    for _libdir in "$_dep/usr/lib64" "$_dep/usr/lib" "$_dep/lib64" "$_dep/lib"; do
+        if [ -d "$_libdir" ]; then
+            _EXTRA_LDFLAGS="$_EXTRA_LDFLAGS -Wl,-rpath-link,$_libdir"
+            _EXTRA_LD_LIBRARY_PATH="$_libdir:$_EXTRA_LD_LIBRARY_PATH"
+        fi
+    done
+done
+export LDFLAGS="${LDFLAGS:-} $_EXTRA_LDFLAGS"
+export LD_LIBRARY_PATH="$_EXTRA_LD_LIBRARY_PATH${LD_LIBRARY_PATH:-}"
+
+# Add clang to PATH
+IFS=':' read -ra _DEP_ARRAY <<< "${DEP_BASE_DIRS:-}"
+for _dep in "${_DEP_ARRAY[@]}"; do
+    if [ -x "$_dep/usr/bin/clang" ]; then
+        export PATH="$_dep/usr/bin:$PATH"
+        break
+    fi
+done
+
+cmake --build "$S/build" -j${MAKEOPTS:-$(nproc)}
+"""
+
+cmake_package(
+    name = "libclc",
+    version = "21.1.6",
+    # Uses the same LLVM monorepo source
+    src_uri = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.6/llvm-project-21.1.6.src.tar.xz",
+    sha256 = "ae67086eb04bed7ca11ab880349b5f1ab6f50e1b88cda376eaf8a845b935762b",
+    signature_required = False,
+    description = "OpenCL C library - part of LLVM",
+    homepage = "https://libclc.llvm.org/",
+    license = "Apache-2.0 WITH LLVM-exception",
+    src_configure = LIBCLC_SRC_CONFIGURE,
+    src_compile = LIBCLC_SRC_COMPILE,
+    cmake_args = [],
+    deps = [
+        "//packages/linux/core/llvm:llvm",
+        # Transitive deps of LLVM needed for LD_LIBRARY_PATH
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/system/libs/data/libxml2:libxml2",
+    ],
+    visibility = ["PUBLIC"],
+)

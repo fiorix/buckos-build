@@ -1,6 +1,6 @@
 load("//defs:package_defs.bzl", "binary_package", "rootfs", "autotools_package")
 load("//defs:use_flags.bzl", "set_use_flags")
-load("//defs:package_defs.bzl", "binary_package", "rootfs", "initramfs", "qemu_boot_script", "iso_image", "stage3_tarball", "autotools_package")
+load("//defs:package_defs.bzl", "binary_package", "rootfs", "initramfs", "dracut_initramfs", "qemu_boot_script", "iso_image", "stage3_tarball", "autotools_package")
 
 # =============================================================================
 # Helper files for live environment
@@ -707,6 +707,13 @@ d /run/user/1000 0700 live live -
 # Live user home directory
 d /home/live 0755 live live -
 d /home/live/Desktop 0755 live live -
+d /home/live/.cache 0755 live live -
+d /home/live/.config 0755 live live -
+d /home/live/.local 0755 live live -
+d /home/live/.local/share 0755 live live -
+
+# Fontconfig cache directory (writable for font caching)
+d /var/cache/fontconfig 0755 root root -
 TMPFILESEOF
 
 # Create PAM environment configuration to ensure XDG_RUNTIME_DIR is set
@@ -1032,6 +1039,16 @@ cat > $OUT/etc/environment.d/60-libseat.conf << 'LIBSEATEOF'
 # Use logind backend for libseat (required for Wayland DRM access)
 LIBSEAT_BACKEND=logind
 LIBSEATEOF
+
+# GPU rendering - ensure hardware acceleration is used
+cat > $OUT/etc/environment.d/60-gpu-render.conf << 'GPURENDEREOF'
+# Ensure hardware GPU rendering (not software llvmpipe)
+LIBGL_ALWAYS_SOFTWARE=0
+# AMD GPU: use radeonsi gallium driver
+GALLIUM_DRIVER=radeonsi
+# KWin DRM settings for better compatibility
+KWIN_DRM_USE_MODIFIERS=1
+GPURENDEREOF
 
 # Locale settings for Qt and KDE
 cat > $OUT/etc/environment.d/50-locale.conf << 'LOCALEEOF'
@@ -1882,8 +1899,15 @@ rootfs(
         "//packages/linux/system/libs/ipc/dbus:dbus",
         "//packages/linux/system/libs/kmod:kmod",
 
+        # Firmware (required for GPU, WiFi, etc. on real hardware)
+        "//packages/linux/system/firmware/linux-firmware:linux-firmware",
+
         # Graphics stack
         "//packages/linux/desktop/mesa:mesa",
+        # Mesa's radeonsi driver depends on LLVM at runtime
+        "//packages/linux/core/llvm:llvm",
+        "//packages/linux/dev-libs/elfutils:elfutils",
+        "//packages/linux/system/libs/data/libxml2:libxml2",
         "//packages/linux/graphics/rendering/wayland:wayland",
         "//packages/linux/graphics/rendering/wayland-protocols:wayland-protocols",
         "//packages/linux/system/libs/input/libinput:libinput",
@@ -2092,124 +2116,168 @@ mkdir -p $OUT/usr/bin
 
 # Create a minimal static init using direct syscalls - NO glibc!
 # This avoids AVX/VEX instructions that cause "invalid opcode" on older CPUs.
-# Force rebuild v3
+# Force rebuild v4 - disable CET, simplify code
 cat > /tmp/init.c << 'INITC'
 // Minimal init using direct syscalls - no glibc
-#include <linux/unistd.h>
-#include <sys/syscall.h>
+// Uses only basic x86-64 instructions, no CET, no SSE, no AVX
 
-// Direct syscall wrappers
-static long my_write(int fd, const void *buf, unsigned long count) {
+// Syscall numbers for x86-64
+#define SYS_write   1
+#define SYS_open    2
+#define SYS_execve  59
+#define SYS_exit    60
+#define SYS_mkdir   83
+#define SYS_mount   165
+
+// Inline syscall - 3 args
+static inline long syscall3(long n, long a1, long a2, long a3) {
     long ret;
     __asm__ volatile (
         "syscall"
         : "=a" (ret)
-        : "a" (__NR_write), "D" (fd), "S" (buf), "d" (count)
+        : "a" (n), "D" (a1), "S" (a2), "d" (a3)
         : "rcx", "r11", "memory"
     );
     return ret;
 }
 
-static long my_mount(const char *source, const char *target, const char *fstype, unsigned long flags, const void *data) {
+// Inline syscall - 5 args (for mount)
+static inline long syscall5(long n, long a1, long a2, long a3, long a4, long a5) {
     long ret;
-    register const void *r10 __asm__("r10") = data;
-    register unsigned long r8 __asm__("r8") = 0;
+    register long r10 __asm__("r10") = a4;
+    register long r8 __asm__("r8") = a5;
     __asm__ volatile (
         "syscall"
         : "=a" (ret)
-        : "a" (__NR_mount), "D" (source), "S" (target), "d" (fstype), "r" (flags), "r" (r10)
+        : "a" (n), "D" (a1), "S" (a2), "d" (a3), "r" (r10), "r" (r8)
         : "rcx", "r11", "memory"
     );
     return ret;
 }
 
-static long my_mkdir(const char *path, int mode) {
-    long ret;
-    __asm__ volatile (
-        "syscall"
-        : "=a" (ret)
-        : "a" (__NR_mkdir), "D" (path), "S" (mode)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-static long my_open(const char *path, int flags, int mode) {
-    long ret;
-    __asm__ volatile (
-        "syscall"
-        : "=a" (ret)
-        : "a" (__NR_open), "D" (path), "S" (flags), "d" (mode)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-static long my_execve(const char *path, char *const argv[], char *const envp[]) {
-    long ret;
-    __asm__ volatile (
-        "syscall"
-        : "=a" (ret)
-        : "a" (__NR_execve), "D" (path), "S" (argv), "d" (envp)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-static void my_exit(int code) {
+static inline void sys_exit(int code) {
     __asm__ volatile (
         "syscall"
         :
-        : "a" (__NR_exit), "D" (code)
+        : "a" (SYS_exit), "D" (code)
     );
+    __builtin_unreachable();
 }
 
+static inline long sys_write(int fd, const char *buf, unsigned long len) {
+    return syscall3(SYS_write, fd, (long)buf, len);
+}
+
+static inline long sys_open(const char *path, int flags, int mode) {
+    return syscall3(SYS_open, (long)path, flags, mode);
+}
+
+static inline long sys_execve(const char *path, char *const argv[], char *const envp[]) {
+    return syscall3(SYS_execve, (long)path, (long)argv, (long)envp);
+}
+
+static inline long sys_mkdir(const char *path, int mode) {
+    return syscall3(SYS_mkdir, (long)path, mode, 0);
+}
+
+static inline long sys_mount(const char *src, const char *dst, const char *fs, unsigned long flags, const void *data) {
+    return syscall5(SYS_mount, (long)src, (long)dst, (long)fs, flags, (long)data);
+}
+
+// Simple strlen
 static unsigned long my_strlen(const char *s) {
-    unsigned long len = 0;
-    while (*s++) len++;
-    return len;
+    const char *p = s;
+    while (*p) p++;
+    return p - s;
 }
 
-static void write_str(int fd, const char *s) {
-    my_write(fd, s, my_strlen(s));
+// Write string to fd
+static void puts_fd(int fd, const char *s) {
+    sys_write(fd, s, my_strlen(s));
 }
+
+// Global strings to avoid stack-allocated string literals
+static const char str_dev_console[] = "/dev/console";
+static const char str_dev_tty0[] = "/dev/tty0";
+static const char str_starting[] = "\\n[init] Starting...\\n";
+static const char str_proc[] = "proc";
+static const char str_proc_path[] = "/proc";
+static const char str_sysfs[] = "sysfs";
+static const char str_sys[] = "/sys";
+static const char str_devtmpfs[] = "devtmpfs";
+static const char str_dev[] = "/dev";
+static const char str_mounted[] = "[init] Mounted /proc /sys /dev\\n";
+static const char str_devpts[] = "devpts";
+static const char str_dev_pts[] = "/dev/pts";
+static const char str_tmpfs[] = "tmpfs";
+static const char str_run[] = "/run";
+static const char str_exec[] = "[init] Exec /bin/sh...\\n";
+static const char str_bin_sh[] = "/bin/sh";
+static const char str_c[] = "-c";
+static const char str_script[] = "exec /usr/bin/live-init-script";
+static const char str_home[] = "HOME=/";
+static const char str_term[] = "TERM=linux";
+static const char str_path[] = "PATH=/usr/bin:/bin:/usr/sbin:/sbin";
+static const char str_sh_fail[] = "[init] sh failed\\n";
+static const char str_bin_bash[] = "/bin/bash";
+static const char str_fatal[] = "[init] FATAL\\n";
 
 void _start(void) {
-    int console = my_open("/dev/console", 2, 0);
-    if (console < 0) console = my_open("/dev/tty0", 2, 0);
-    if (console < 0) console = 1;
+    int fd;
 
-    write_str(console, "\\n[init] Starting...\\n");
+    // Try to open console
+    fd = sys_open(str_dev_console, 2, 0);
+    if (fd < 0) fd = sys_open(str_dev_tty0, 2, 0);
+    if (fd < 0) fd = 1;
 
-    my_mount("proc", "/proc", "proc", 0, 0);
-    my_mount("sysfs", "/sys", "sysfs", 0, 0);
-    my_mount("devtmpfs", "/dev", "devtmpfs", 0, 0);
+    puts_fd(fd, str_starting);
 
-    write_str(console, "[init] Mounted /proc /sys /dev\\n");
+    // Mount essential filesystems
+    sys_mount(str_proc, str_proc_path, str_proc, 0, 0);
+    sys_mount(str_sysfs, str_sys, str_sysfs, 0, 0);
+    sys_mount(str_devtmpfs, str_dev, str_devtmpfs, 0, 0);
 
-    my_mkdir("/dev/pts", 0755);
-    my_mkdir("/run", 0755);
-    my_mount("devpts", "/dev/pts", "devpts", 0, 0);
-    my_mount("tmpfs", "/run", "tmpfs", 0, 0);
+    puts_fd(fd, str_mounted);
 
-    write_str(console, "[init] Exec /bin/sh...\\n");
+    // Create directories and mount additional filesystems
+    sys_mkdir(str_dev_pts, 0755);
+    sys_mkdir(str_run, 0755);
+    sys_mount(str_devpts, str_dev_pts, str_devpts, 0, 0);
+    sys_mount(str_tmpfs, str_run, str_tmpfs, 0, 0);
 
-    char *argv[] = { "/bin/sh", "-c", "exec /usr/bin/live-init-script", 0 };
-    char *envp[] = { "HOME=/", "TERM=linux", "PATH=/usr/bin:/bin:/usr/sbin:/sbin", 0 };
-    my_execve("/bin/sh", argv, envp);
+    puts_fd(fd, str_exec);
 
-    write_str(console, "[init] sh failed\\n");
-    argv[0] = "/bin/bash";
-    my_execve("/bin/bash", argv, envp);
+    // Exec /bin/sh
+    char *argv[] = { (char*)str_bin_sh, (char*)str_c, (char*)str_script, 0 };
+    char *envp[] = { (char*)str_home, (char*)str_term, (char*)str_path, 0 };
+    sys_execve(str_bin_sh, argv, envp);
 
-    write_str(console, "[init] FATAL\\n");
-    while(1) {}
-    my_exit(1);
+    puts_fd(fd, str_sh_fail);
+
+    // Try bash as fallback
+    argv[0] = (char*)str_bin_bash;
+    sys_execve(str_bin_bash, argv, envp);
+
+    puts_fd(fd, str_fatal);
+
+    // Hang forever
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
 }
 INITC
 
-# Compile with NO libc - direct syscalls only, no AVX/VEX instructions
-gcc -nostdlib -nostartfiles -static -march=x86-64 -mtune=generic -mno-avx -mno-avx2 -fno-tree-vectorize -o $OUT/usr/bin/static-init /tmp/init.c
+# Compile with NO libc, NO CET, NO stack protection, NO AVX - pure baseline x86-64
+gcc -nostdlib -nostartfiles -static \\
+    -march=x86-64 -mtune=generic \\
+    -mno-avx -mno-avx2 -mno-sse4.2 -mno-sse4.1 -mno-ssse3 \\
+    -fno-tree-vectorize \\
+    -fcf-protection=none \\
+    -fno-stack-protector \\
+    -fno-pie -no-pie \\
+    -fomit-frame-pointer \\
+    -O2 \\
+    -o $OUT/usr/bin/static-init /tmp/init.c
 chmod 755 $OUT/usr/bin/static-init
 rm /tmp/init.c
 """,
@@ -2250,13 +2318,276 @@ rootfs(
     visibility = ["PUBLIC"],
 )
 
-# Initramfs for live system with static init (more robust for real hardware)
+# Shell script init wrapper - uses bash instead of custom binary for better hardware compatibility
+genrule(
+    name = "shell-init-gen",
+    out = "shell-init",
+    cmd = """
+mkdir -p $OUT/usr/bin
+cat > $OUT/usr/bin/shell-init << 'SHELLINIT'
+#!/bin/bash
+# Simple shell-based init wrapper
+# Mounts essential filesystems then execs the live-init-script
+
+# Mount essential filesystems
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+
+# Create required directories
+mkdir -p /dev/pts /run 2>/dev/null
+mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+
+# Execute the live boot script
+exec /usr/bin/live-init-script
+SHELLINIT
+chmod +x $OUT/usr/bin/shell-init
+""",
+    visibility = ["PUBLIC"],
+)
+
+# Initramfs for live system with shell init (uses bash for better hardware compatibility)
 initramfs(
-    name = "buckos-live-initramfs",
-    rootfs = ":buckos-initramfs-rootfs",
+    name = "buckos-live-initramfs-dynamic",
+    rootfs = ":buckos-initramfs-rootfs-shell",
     compression = "gz",
-    init = "/usr/bin/static-init",
-    # Don't use init_script - we include live-init-script via live-init-script-gen
+    init = "/usr/bin/shell-init",
+    visibility = ["PUBLIC"],
+)
+
+# Rootfs for shell-based initramfs (dynamic, needs glibc)
+rootfs(
+    name = "buckos-initramfs-rootfs-shell",
+    packages = [
+        ":baselayout-gen",
+        ":shell-init-gen",
+        ":live-init-script-gen",
+        # C runtime (required for dynamically-linked binaries)
+        "//packages/linux/core/glibc:glibc",
+        # Core utilities
+        "//packages/linux/system/apps/coreutils:coreutils",
+        "//packages/linux/core/util-linux:util-linux",
+        "//packages/linux/core/bash:bash",
+        # Compression (squashfs is mounted via kernel, not userspace tools)
+        "//packages/linux/system/libs/compression/xz:xz",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+        "//packages/linux/core/zlib:zlib",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Static Busybox Initramfs (no glibc, no dynamic linking)
+# =============================================================================
+
+# Live init script for static busybox - creates proper rootfs structure with /init
+# The rootfs merge logic looks for usr/, bin/, lib/, etc. to identify package dirs
+# So we create a minimal structure with usr/bin to trigger the merge
+genrule(
+    name = "busybox-live-init-gen",
+    out = "rootfs",
+    srcs = ["//defs/scripts:busybox-live-init"],
+    cmd = "mkdir -p $OUT/usr/bin && cp $(location //defs/scripts:busybox-live-init) $OUT/init && chmod +x $OUT/init",
+    visibility = ["PUBLIC"],
+)
+
+# Rootfs for static busybox initramfs (NO glibc - fully static)
+rootfs(
+    name = "buckos-initramfs-rootfs-static",
+    packages = [
+        ":baselayout-gen",
+        ":busybox-live-init-gen",
+        # Static busybox - the ONLY binary needed
+        "//packages/linux/core/busybox:busybox-static",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Static busybox initramfs for live system with custom live boot init
+initramfs(
+    name = "buckos-live-initramfs-busybox",
+    rootfs = ":buckos-initramfs-rootfs-static",
+    compression = "gz",
+    init = "/init",
+    init_script = "//defs/scripts:busybox-live-init",
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Systemd-based Initramfs for Live Boot
+# =============================================================================
+
+# Genrule to create systemd unit files structure for initramfs
+genrule(
+    name = "systemd-live-units-gen",
+    out = "systemd-live-units",
+    srcs = [
+        "//defs/scripts:initrd-live-media-service",
+        "//defs/scripts:initrd-live-media-script",
+    ],
+    cmd = """
+        mkdir -p $OUT/usr/lib/systemd/system/initrd.target.wants
+        mkdir -p $OUT/usr/lib/systemd/scripts
+
+        # Install service unit
+        cp $(location //defs/scripts:initrd-live-media-service) $OUT/usr/lib/systemd/system/initrd-live-media.service
+
+        # Install script
+        cp $(location //defs/scripts:initrd-live-media-script) $OUT/usr/lib/systemd/scripts/initrd-live-media.sh
+        chmod +x $OUT/usr/lib/systemd/scripts/initrd-live-media.sh
+
+        # Enable the service for initrd targets
+        mkdir -p $OUT/usr/lib/systemd/system/initrd.target.wants
+        mkdir -p $OUT/usr/lib/systemd/system/initrd-root-fs.target.requires
+        ln -sf ../initrd-live-media.service $OUT/usr/lib/systemd/system/initrd.target.wants/initrd-live-media.service
+        ln -sf ../initrd-live-media.service $OUT/usr/lib/systemd/system/initrd-root-fs.target.requires/initrd-live-media.service
+
+        # Set initrd.target as the default target for initrd
+        mkdir -p $OUT/etc/systemd/system
+        ln -sf /usr/lib/systemd/system/initrd.target $OUT/etc/systemd/system/default.target
+
+        # Create a sysroot.mount override that is satisfied by our script
+        mkdir -p $OUT/etc/systemd/system/sysroot.mount.d
+        cat > $OUT/etc/systemd/system/sysroot.mount.d/live.conf << 'SYSROOTCONF'
+[Unit]
+# Allow sysroot.mount to succeed even though we're mounting from our script
+ConditionPathIsMountPoint=
+AssertPathIsMountPoint=
+After=initrd-live-media.service
+Requires=initrd-live-media.service
+SYSROOTCONF
+
+        # Create a drop-in for initrd-root-fs.target to remove its assertions
+        mkdir -p $OUT/etc/systemd/system/initrd-root-fs.target.d
+        cat > $OUT/etc/systemd/system/initrd-root-fs.target.d/live.conf << 'ROOTFSTARGET'
+[Unit]
+# Remove assertions for live boot - our script handles mounting
+AssertPathIsMountPoint=
+After=initrd-live-media.service
+Requires=initrd-live-media.service
+ROOTFSTARGET
+
+        # Create /etc/initrd-release - systemd's initrd-switch-root.service checks for this
+        mkdir -p $OUT/etc
+        cat > $OUT/etc/initrd-release << 'INITRDRELEASE'
+NAME="BuckOS Live"
+ID=buckos
+VERSION_ID=1.0
+PRETTY_NAME="BuckOS Live Boot Environment"
+INITRDRELEASE
+
+        # Create drop-in for initrd-switch-root.service to remove assertions and add our deps
+        mkdir -p $OUT/etc/systemd/system/initrd-switch-root.service.d
+        cat > $OUT/etc/systemd/system/initrd-switch-root.service.d/live.conf << 'SWITCHROOTCONF'
+[Unit]
+# Clear assertions that may fail in live boot
+AssertPathExists=
+# Ensure we run after live media is mounted
+After=initrd-live-media.service
+Requires=initrd-live-media.service
+SWITCHROOTCONF
+
+        # Make initrd-root-fs.target want switch-root.service (not initrd.target)
+        # This ensures switch-root only runs AFTER root fs is mounted
+        mkdir -p $OUT/usr/lib/systemd/system/initrd-root-fs.target.wants
+        ln -sf ../initrd-switch-root.service $OUT/usr/lib/systemd/system/initrd-root-fs.target.wants/initrd-switch-root.service
+
+        # Create symlink for init
+        mkdir -p $OUT/usr/sbin
+        ln -sf ../lib/systemd/systemd $OUT/usr/sbin/init
+
+        # Create /init symlink (kernel looks for this)
+        ln -sf usr/lib/systemd/systemd $OUT/init
+    """,
+    visibility = ["PUBLIC"],
+)
+
+# Rootfs with systemd for initramfs (minimal set for live boot)
+rootfs(
+    name = "buckos-initramfs-rootfs-systemd",
+    packages = [
+        ":baselayout-gen",
+        ":systemd-live-units-gen",
+        # Core system
+        "//packages/linux/core/glibc:glibc",
+        "//packages/linux/core/bash:bash",
+        # systemd for init
+        "//packages/linux/system/init/systemd:systemd",
+        # udev for device detection (systemd includes this)
+        # Basic utilities
+        "//packages/linux/system/apps/coreutils:coreutils",
+        "//packages/linux/core/util-linux:util-linux",
+        # kmod for module loading
+        "//packages/linux/system/libs/kmod:kmod",
+        # Static busybox as fallback and for blkid
+        "//packages/linux/core/busybox:busybox-static",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Systemd-based initramfs for live boot
+initramfs(
+    name = "buckos-live-initramfs-systemd",
+    rootfs = ":buckos-initramfs-rootfs-systemd",
+    compression = "gz",
+    init = "/usr/lib/systemd/systemd",
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Dracut-based Initramfs (recommended for live boot)
+# =============================================================================
+
+# Rootfs with dracut and all dependencies for initramfs generation
+rootfs(
+    name = "buckos-dracut-builder-rootfs",
+    packages = [
+        ":baselayout-gen",
+        # Dracut and its dependencies
+        "//packages/linux/system/initramfs/dracut:dracut",
+        # Core system
+        "//packages/linux/core/glibc:glibc",
+        "//packages/linux/core/bash:bash",
+        "//packages/linux/system/apps/coreutils:coreutils",
+        "//packages/linux/core/util-linux:util-linux",
+        # systemd for initrd
+        "//packages/linux/system/init/systemd:systemd",
+        # udev for device detection
+        "//packages/linux/system/init/eudev:eudev",
+        # Compression utilities
+        "//packages/linux/system/libs/compression/gzip:gzip",
+        "//packages/linux/system/libs/compression/xz:xz",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+        # kmod for module loading
+        "//packages/linux/system/libs/kmod:kmod",
+        # Other utilities dracut needs
+        "//packages/linux/system/apps/findutils:findutils",
+        "//packages/linux/editors/sed:sed",
+        "//packages/linux/editors/grep:grep",
+        "//packages/linux/system/libs/cpio:cpio",
+        # Device-mapper for dmsquash-live (dmsetup)
+        "//packages/linux/system/security/cryptsetup:lvm2",
+        # Network utilities (ip command)
+        "//packages/linux/network/iproute2:iproute2",
+        # ncurses for bash/readline (libtinfow)
+        "//packages/linux/system/terminal/ncurses:ncurses",
+        # awk for various scripts
+        "//packages/linux/editors/gawk:gawk",
+        # tar for img-lib module
+        "//packages/linux/system/apps/tar:tar",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Dracut-generated initramfs with dmsquash-live for live boot
+dracut_initramfs(
+    name = "buckos-live-initramfs",
+    kernel = "//packages/linux/kernel/buckos-kernel:buckos-kernel-live",
+    dracut = "//packages/linux/system/initramfs/dracut:dracut",
+    rootfs = ":buckos-dracut-builder-rootfs",
+    add_modules = ["dmsquash-live", "livenet", "systemd", "systemd-initrd"],
+    compression = "gzip",
     visibility = ["PUBLIC"],
 )
 
@@ -2268,11 +2599,12 @@ initramfs(
 iso_image(
     name = "buckos-live-installer-kde",
     kernel = "//packages/linux/kernel/buckos-kernel:buckos-kernel-live",
-    initramfs = ":buckos-live-initramfs",
+    initramfs = ":buckos-live-initramfs-systemd",
     rootfs = ":buckos-live-kde-rootfs",
     boot_mode = "hybrid",
     volume_label = "BUCKOS_LIVE",
-    kernel_args = "console=tty0 console=ttyS0,115200 rdinit=/init nokaslr systemd.unified_cgroup_hierarchy=1",
+    # Systemd initrd boot parameters (no serial console - causes hangs on AMD laptops)
+    kernel_args = "console=tty0 loglevel=7 rd.systemd.show_status=true",
     visibility = ["PUBLIC"],
 )
 

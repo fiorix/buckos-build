@@ -296,10 +296,12 @@ if [ -n "$MESA_PATH" ]; then
 
     # Patch Qt's main CMakeLists.txt to add EGL and GLESv2 target definitions at the very beginning
     # This ensures the targets exist globally before any find_package calls
+    # Use UNKNOWN library type to avoid "platform does not support dynamic linking" warning
     cat > /tmp/egl_targets.cmake << EOF
 # EGL and GLESv2 targets for cross-compilation (auto-injected)
+# Using UNKNOWN type to work around cross-compilation warnings
 if(NOT TARGET EGL::EGL)
-    add_library(EGL::EGL SHARED IMPORTED GLOBAL)
+    add_library(EGL::EGL UNKNOWN IMPORTED GLOBAL)
     set_target_properties(EGL::EGL PROPERTIES
         IMPORTED_LOCATION "$EGL_LIB"
         INTERFACE_INCLUDE_DIRECTORIES "$EGL_INCLUDE"
@@ -307,19 +309,37 @@ if(NOT TARGET EGL::EGL)
 endif()
 
 if(NOT TARGET GLESv2::GLESv2)
-    add_library(GLESv2::GLESv2 SHARED IMPORTED GLOBAL)
+    add_library(GLESv2::GLESv2 UNKNOWN IMPORTED GLOBAL)
     set_target_properties(GLESv2::GLESv2 PROPERTIES
         IMPORTED_LOCATION "$GLESV2_LIB"
         INTERFACE_INCLUDE_DIRECTORIES "$EGL_INCLUDE"
     )
 endif()
 
-set(EGL_FOUND TRUE CACHE BOOL "EGL found")
-set(EGL_INCLUDE_DIR "$EGL_INCLUDE" CACHE PATH "EGL include dir")
-set(EGL_LIBRARY "$EGL_LIB" CACHE FILEPATH "EGL library")
-set(GLESv2_FOUND TRUE CACHE BOOL "GLESv2 found")
-set(GLESv2_INCLUDE_DIR "$EGL_INCLUDE" CACHE PATH "GLESv2 include dir")
-set(GLESv2_LIBRARY "$GLESV2_LIB" CACHE FILEPATH "GLESv2 library")
+# Also create OpenGL::EGL and OpenGL::GLESv2 targets that Qt6 expects
+if(NOT TARGET OpenGL::EGL)
+    add_library(OpenGL::EGL ALIAS EGL::EGL)
+endif()
+
+if(NOT TARGET OpenGL::GLESv2)
+    add_library(OpenGL::GLESv2 ALIAS GLESv2::GLESv2)
+endif()
+
+# Set cache variables that Qt's FindEGL/FindGLESv2 would set
+set(EGL_FOUND TRUE CACHE BOOL "EGL found" FORCE)
+set(EGL_INCLUDE_DIR "$EGL_INCLUDE" CACHE PATH "EGL include dir" FORCE)
+set(EGL_LIBRARY "$EGL_LIB" CACHE FILEPATH "EGL library" FORCE)
+set(EGL_opengl_LIBRARY "$EGL_LIB" CACHE FILEPATH "EGL library" FORCE)
+set(GLESv2_FOUND TRUE CACHE BOOL "GLESv2 found" FORCE)
+set(GLESv2_INCLUDE_DIR "$EGL_INCLUDE" CACHE PATH "GLESv2 include dir" FORCE)
+set(GLESv2_LIBRARY "$GLESV2_LIB" CACHE FILEPATH "GLESv2 library" FORCE)
+set(OpenGL_EGL_FOUND TRUE CACHE BOOL "OpenGL EGL found" FORCE)
+set(OpenGL_GLESv2_FOUND TRUE CACHE BOOL "OpenGL GLES found" FORCE)
+set(OpenGL_GLES2_FOUND TRUE CACHE BOOL "OpenGL GLES2 found" FORCE)
+set(OpenGL_GLES3_FOUND TRUE CACHE BOOL "OpenGL GLES3 found" FORCE)
+set(OPENGL_FOUND TRUE CACHE BOOL "OpenGL found" FORCE)
+set(OPENGL_egl_LIBRARY "$EGL_LIB" CACHE FILEPATH "EGL library" FORCE)
+set(OPENGL_gles2_LIBRARY "$GLESV2_LIB" CACHE FILEPATH "GLES2 library" FORCE)
 EOF
 
     # Insert the EGL targets after the first cmake_minimum_required line in Qt's main CMakeLists.txt
@@ -559,6 +579,47 @@ rm -rf "${BUILD_DIR:-build}"
 mkdir -p "${BUILD_DIR:-build}"
 cd "${BUILD_DIR:-build}"
 
+# Find EGL/GLESv2 paths from Mesa in dependencies
+EGL_CMAKE_ARGS=""
+for _dep in "${_DEP_ARRAY[@]}"; do
+    if [ -f "$_dep/usr/lib64/libEGL.so" ] && [ -f "$_dep/usr/lib64/libGLESv2.so" ]; then
+        MESA_PREFIX="$_dep/usr"
+        echo "Found Mesa at: $MESA_PREFIX"
+        echo "EGL: $MESA_PREFIX/lib64/libEGL.so"
+        echo "GLESv2: $MESA_PREFIX/lib64/libGLESv2.so"
+
+        # Pass library paths directly to CMake FindEGL/FindGLESv2
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DEGL_INCLUDE_DIR=$MESA_PREFIX/include"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DEGL_LIBRARY=$MESA_PREFIX/lib64/libEGL.so"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DGLESv2_INCLUDE_DIR=$MESA_PREFIX/include"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DGLESv2_LIBRARY=$MESA_PREFIX/lib64/libGLESv2.so"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOPENGL_egl_LIBRARY=$MESA_PREFIX/lib64/libEGL.so"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOPENGL_gles2_LIBRARY=$MESA_PREFIX/lib64/libGLESv2.so"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOPENGL_INCLUDE_DIR=$MESA_PREFIX/include"
+        # Force Qt to recognize we have EGL/GLES using FEATURE_ variables
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DFEATURE_egl=ON"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DFEATURE_opengles2=ON"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DFEATURE_opengl=ON"
+        # Also set QT_FEATURE_ for internal cmake cache
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DQT_FEATURE_egl=ON"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DQT_FEATURE_opengles2=ON"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DQT_FEATURE_opengl=ON"
+        # Skip OpenGL test compilation - trust our pre-defined targets from src_prepare
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOpenGL_GL_PREFERENCE=GLVND"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DQT_INTERNAL_NO_CONFIGURE_CHECKS=ON"
+        # Set OpenGL_DIR for CMake's FindOpenGL
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOpenGL_DIR=$MESA_PREFIX/lib64/cmake/OpenGL"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOpenGL_ROOT=$MESA_PREFIX"
+        # Explicitly set the EGL/GLES library location for WrapOpenGL
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOpenGL_EGL_LIBRARY=$MESA_PREFIX/lib64/libEGL.so"
+        EGL_CMAKE_ARGS="$EGL_CMAKE_ARGS -DOpenGL_GLESv2_LIBRARY=$MESA_PREFIX/lib64/libGLESv2.so"
+        # Set the pkg-config path for EGL/GLES detection
+        export PKG_CONFIG_PATH="$MESA_PREFIX/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
+        break
+    fi
+done
+echo "EGL_CMAKE_ARGS: $EGL_CMAKE_ARGS"
+
 # Prevent CMake from finding host libraries during cross-compilation
 if [ "${CROSS_COMPILING:-false}" = "true" ]; then
     echo "Cross-compiling: Ignoring host library paths in CMake"
@@ -574,6 +635,7 @@ if [ "${CROSS_COMPILING:-false}" = "true" ]; then
         -DCMAKE_SHARED_LINKER_FLAGS="$_CMAKE_LINKER_FLAGS" \
         -DCMAKE_MODULE_LINKER_FLAGS="$_CMAKE_LINKER_FLAGS" \
         $FONT_CMAKE_ARGS \
+        $EGL_CMAKE_ARGS \
         $QT_HOST_PATH_ARG \
         ${CMAKE_ARGS:-}
 else
@@ -581,6 +643,7 @@ else
         -DCMAKE_INSTALL_PREFIX="${EPREFIX:-/usr}" \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}" \
         $FONT_CMAKE_ARGS \
+        $EGL_CMAKE_ARGS \
         $QT_HOST_PATH_ARG \
         ${CMAKE_ARGS:-}
 fi
@@ -772,12 +835,18 @@ cmake --build "$S/build" -j${MAKEOPTS:-$(nproc)}
             "-DQT_FEATURE_egl=ON",
             "-DQT_FEATURE_opengles2=ON",
             "-DQT_FEATURE_opengl=ON",
+            # Force EGL/GLESv2 to be found without running tests (cross-compilation)
+            # These cache variables pre-populate the find_package results
+            "-DHAVE_EGL=TRUE",
+            "-DHAVE_GLESv2=TRUE",
+            "-DEGL_FOUND=TRUE",
+            "-DGLESv2_FOUND=TRUE",
+            # Disable desktop OpenGL which requires GLX/libGL (we only have GLES)
+            "-DQT_FEATURE_opengl_desktop=OFF",
             # Help CMake find EGL/GLES from Mesa by checking system paths
             "-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH",
             "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH",
             "-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH",
-            # Ensure pkg-config is used for EGL detection
-            "-DCMAKE_DISABLE_FIND_PACKAGE_EGL=OFF",
         ],
         "-opengl": [
             "-DINPUT_opengl=no",
@@ -877,6 +946,11 @@ cmake --build "$S/build" -j${MAKEOPTS:-$(nproc)}
         ],
         "opengl": [
             "//packages/linux/desktop/mesa:mesa",
+            # Mesa's radeonsi driver depends on LLVM and elfutils
+            # LLVM depends on libxml2
+            "//packages/linux/core/llvm:llvm",
+            "//packages/linux/dev-libs/elfutils:elfutils",
+            "//packages/linux/system/libs/data/libxml2:libxml2",
         ],
         "ssl": [
             "//packages/linux/system/libs/crypto/openssl:openssl",

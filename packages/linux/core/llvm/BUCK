@@ -54,14 +54,31 @@ LLVM_CMAKE_ARGS = [
     "-DLLVM_INCLUDE_TESTS=OFF",
     # USE flag: doc
     "-DLLVM_INCLUDE_DOCS=OFF",
-    "-DLLVM_TARGETS_TO_BUILD=X86;AArch64;ARM;WebAssembly;BPF",
+    # Include AMDGPU target for mesa radeonsi driver
+    "-DLLVM_TARGETS_TO_BUILD=AMDGPU;X86;AArch64;ARM;WebAssembly;BPF",
     "-DLLVM_INSTALL_UTILS=ON",
 ]
 
 # Custom configure that handles llvm/ subdirectory
 LLVM_SRC_CONFIGURE = """
 # LLVM has CMakeLists.txt in llvm/ subdirectory
+# Wipe build directory to force reconfigure
+rm -rf "$S/build"
 mkdir -p "$S/build"
+
+# Build rpath-link flags for transitive shared library dependencies
+_EXTRA_LDFLAGS=""
+IFS=':' read -ra _DEP_ARRAY <<< "${DEP_BASE_DIRS:-}"
+for _dep in "${_DEP_ARRAY[@]}"; do
+    for _libdir in "$_dep/usr/lib64" "$_dep/usr/lib" "$_dep/lib64" "$_dep/lib"; do
+        if [ -d "$_libdir" ]; then
+            _EXTRA_LDFLAGS="$_EXTRA_LDFLAGS -Wl,-rpath-link,$_libdir"
+        fi
+    done
+done
+export LDFLAGS="${LDFLAGS:-} $_EXTRA_LDFLAGS"
+echo "LDFLAGS=$LDFLAGS"
+
 cmake \\
     -S "$S/llvm" \\
     -B "$S/build" \\
@@ -70,8 +87,29 @@ cmake \\
     -DCMAKE_INSTALL_LIBDIR="${LIBDIR:-lib64}" \\
     -DCMAKE_C_FLAGS="${CFLAGS:-}" \\
     -DCMAKE_CXX_FLAGS="${CXXFLAGS:-}" \\
+    -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS:-}" \\
+    -DCMAKE_SHARED_LINKER_FLAGS="${LDFLAGS:-}" \\
+    -DCMAKE_MODULE_LINKER_FLAGS="${LDFLAGS:-}" \\
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \\
     ${CMAKE_EXTRA_ARGS:-}
+"""
+
+# Custom compile with rpath-link for transitive deps
+LLVM_SRC_COMPILE = """
+# Build rpath-link flags for transitive shared library dependencies
+_EXTRA_LDFLAGS=""
+IFS=':' read -ra _DEP_ARRAY <<< "${DEP_BASE_DIRS:-}"
+for _dep in "${_DEP_ARRAY[@]}"; do
+    for _libdir in "$_dep/usr/lib64" "$_dep/usr/lib" "$_dep/lib64" "$_dep/lib"; do
+        if [ -d "$_libdir" ]; then
+            _EXTRA_LDFLAGS="$_EXTRA_LDFLAGS -Wl,-rpath-link,$_libdir"
+        fi
+    done
+done
+export LDFLAGS="${LDFLAGS:-} $_EXTRA_LDFLAGS"
+echo "LDFLAGS=$LDFLAGS"
+
+cmake --build "$S/build" -j${MAKEOPTS:-$(nproc)}
 """
 
 # =============================================================================
@@ -92,9 +130,11 @@ cmake_package(
     homepage = "https://llvm.org/",
     license = "Apache-2.0 WITH LLVM-exception",
     src_configure = LLVM_SRC_CONFIGURE,
+    src_compile = LLVM_SRC_COMPILE,
     cmake_args = LLVM_CMAKE_ARGS,
     deps = use_dep(LLVM_USE_DEPS, _effective_use) + [
         "//packages/linux/system/terminal/ncurses:ncurses",
+        "//packages/linux/system/libs/data/libxml2:libxml2",
     ],
     visibility = ["PUBLIC"],
 )
