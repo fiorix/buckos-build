@@ -213,10 +213,12 @@ def get_vendor_path(package_path: str, filename: str) -> str:
         filename: The source filename (e.g., "bash-5.2.tar.gz")
 
     Returns:
-        The path where the vendored source should be stored: vendor/<filename>
+        The path where the vendored source should be stored: vendor/<first-letter>/<filename>
     """
     vendor_dir = _get_vendor_dir()
-    return "{}/{}".format(vendor_dir, filename)
+    # Vendor directory uses first-letter subdirectories (e.g., vendor/b/bash-5.2.tar.gz)
+    first_letter = filename[0].lower()
+    return "{}/{}/{}".format(vendor_dir, first_letter, filename)
 
 def _get_download_max_concurrent():
     """
@@ -228,11 +230,72 @@ def _get_download_max_concurrent():
 def _get_download_env():
     """
     Get environment variables for download actions.
-    Returns a dict with BUCKOS_MAX_CONCURRENT_DOWNLOADS set.
+    Includes mirror configuration read from .buckconfig [mirror] section.
     """
-    return {
+    env = {
         "BUCKOS_MAX_CONCURRENT_DOWNLOADS": _get_download_max_concurrent(),
+        "BUCKOS_SOURCE_ORDER": _get_mirror_source_order(),
+        "BUCKOS_VENDOR_DIR": _get_vendor_dir(),
+        "BUCKOS_VENDOR_PREFER": "true" if _get_vendor_prefer() else "false",
+        "BUCKOS_VENDOR_REQUIRE": "true" if _get_vendor_require() else "false",
     }
+
+    # BuckOS public mirror URL
+    mirror_url = _get_mirror_buckos_url()
+    if mirror_url:
+        env["BUCKOS_MIRROR_URL"] = mirror_url
+
+    # Proxy support
+    proxy = _get_download_proxy()
+    if proxy:
+        env["BUCKOS_DOWNLOAD_PROXY"] = proxy
+
+    # Internal mirror config (only set when configured, e.g. via .buckconfig.local)
+    internal_type = _get_mirror_internal_type()
+    if internal_type:
+        env["BUCKOS_INTERNAL_MIRROR_TYPE"] = internal_type
+
+        base_url = _get_mirror_internal_base_url()
+        if base_url:
+            env["BUCKOS_INTERNAL_MIRROR_BASE_URL"] = base_url
+
+        cert_path = _get_mirror_internal_cert_path()
+        if cert_path:
+            env["BUCKOS_INTERNAL_MIRROR_CERT_PATH"] = cert_path
+
+        cli_get = _get_mirror_internal_cli_get()
+        if cli_get:
+            env["BUCKOS_INTERNAL_MIRROR_CLI_GET"] = cli_get
+
+    return env
+
+def _get_mirror_source_order():
+    """Get the source resolution order from [mirror] section."""
+    return read_config("mirror", "source_order", "vendor,buckos-mirror,upstream")
+
+def _get_mirror_buckos_url():
+    """Get the public BuckOS mirror URL from [mirror] section."""
+    return read_config("mirror", "buckos_mirror_url", "")
+
+def _get_mirror_internal_type():
+    """Get the internal mirror type (http or cli) from [mirror] section."""
+    return read_config("mirror", "internal_mirror_type", "")
+
+def _get_mirror_internal_base_url():
+    """Get the internal mirror base URL from [mirror] section."""
+    return read_config("mirror", "internal_mirror_base_url", "")
+
+def _get_mirror_internal_cert_path():
+    """Get the internal mirror x509 cert path from [mirror] section."""
+    return read_config("mirror", "internal_mirror_cert_path", "")
+
+def _get_mirror_internal_cli_get():
+    """Get the internal mirror CLI get command template from [mirror] section.
+
+    The command template uses {path} and {output} placeholders.
+    Example: 'mycli get mybucket/{path} {output}'
+    """
+    return read_config("mirror", "internal_mirror_cli_get", "")
 
 # Platform constraint values for target_compatible_with
 # Only macOS packages need constraints to prevent building on Linux
@@ -310,109 +373,30 @@ def _collect_dep_dirs(deps: list) -> list:
 # -----------------------------------------------------------------------------
 
 def _http_file_with_proxy_impl(ctx: AnalysisContext) -> list[Provider]:
-    """Download a file using curl with proxy support, checking for vendored sources first."""
+    """Download a file using configurable multi-source resolution.
+
+    Source order is controlled by [mirror] source_order in .buckconfig.
+    The external fetch_source.sh script handles vendor, buckos-mirror,
+    internal-mirror, and upstream backends.
+    """
     out_file = ctx.actions.declare_output(ctx.attrs.out)
 
-    # Build curl command with proxy
-    proxy = ctx.attrs.proxy
-    proxy_args = "--proxy {}".format(proxy) if proxy else ""
-
-    # Calculate vendor path using configurable vendor directory
-    # ctx.label.package gives us the package path (e.g., "packages/linux/core/bash")
-    vendor_path = get_vendor_path(ctx.label.package, ctx.attrs.out)
-
-    # Get vendor configuration
-    prefer_vendored = "true" if _get_vendor_prefer() else "false"
-    require_vendored = "true" if _get_vendor_require() else "false"
-
-    # Create download script that checks for vendored source first
-    script_content = """#!/bin/bash
-set -e
-OUT_FILE="$1"
-URL="$2"
-EXPECTED_SHA256="$3"
-PROXY_ARGS="$4"
-VENDOR_PATH="$5"
-PREFER_VENDORED="$6"
-REQUIRE_VENDORED="$7"
-
-# Function to verify SHA256
-verify_sha256() {
-    local file="$1"
-    local expected="$2"
-    if [ -n "$expected" ]; then
-        local actual=$(sha256sum "$file" | cut -d' ' -f1)
-        if [ "$actual" != "$expected" ]; then
-            return 1
-        fi
-    fi
-    return 0
-}
-
-# Check for vendored source if prefer_vendored is enabled
-if [ "$PREFER_VENDORED" = "true" ] && [ -n "$VENDOR_PATH" ]; then
-    # Find the repo root (walk up until we find .buckconfig)
-    REPO_ROOT="$PWD"
-    while [ ! -f "$REPO_ROOT/.buckconfig" ] && [ "$REPO_ROOT" != "/" ]; do
-        REPO_ROOT="$(dirname "$REPO_ROOT")"
-    done
-
-    VENDORED_FILE="$REPO_ROOT/$VENDOR_PATH"
-    if [ -f "$VENDORED_FILE" ]; then
-        echo "Found vendored source: $VENDORED_FILE"
-        if verify_sha256 "$VENDORED_FILE" "$EXPECTED_SHA256"; then
-            echo "SHA256 verified, using vendored source"
-            cp "$VENDORED_FILE" "$OUT_FILE"
-            exit 0
-        else
-            echo "WARNING: Vendored source checksum mismatch, falling back to download"
-        fi
-    fi
-fi
-
-# If require_vendored is set, fail if we get here
-if [ "$REQUIRE_VENDORED" = "true" ]; then
-    echo "ERROR: Vendored source required but not found or invalid: $VENDOR_PATH" >&2
-    echo "Run: ./tools/vendor-sources --target <target> to vendor sources" >&2
-    exit 1
-fi
-
-# Download with curl
-curl -fsSL --retry 3 --retry-delay 2 $PROXY_ARGS -o "$OUT_FILE" "$URL"
-
-# Verify SHA256 if provided
-if [ -n "$EXPECTED_SHA256" ]; then
-    ACTUAL_SHA256=$(sha256sum "$OUT_FILE" | cut -d' ' -f1)
-    if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-        echo "SHA256 mismatch!" >&2
-        echo "  Expected: $EXPECTED_SHA256" >&2
-        echo "  Actual:   $ACTUAL_SHA256" >&2
-        rm -f "$OUT_FILE"
-        exit 1
-    fi
-    echo "SHA256 verified: $ACTUAL_SHA256"
-fi
-"""
-
-    script = ctx.actions.write("download.sh", script_content, is_executable = True)
+    # Get the external fetch script
+    fetch_script = ctx.attrs._fetch_script[DefaultInfo].default_outputs[0]
 
     cmd = cmd_args([
         "bash",
-        script,
+        fetch_script,
         out_file.as_output(),
-        ctx.attrs.urls[0],  # Use first URL
+        ctx.attrs.urls[0],
         ctx.attrs.sha256,
-        proxy_args,
-        vendor_path,
-        prefer_vendored,
-        require_vendored,
     ])
 
     ctx.actions.run(
         cmd,
         category = "http_file",
         identifier = ctx.attrs.name,
-        local_only = True,  # Network access needed (unless vendored)
+        local_only = True,
         env = _get_download_env(),
     )
 
@@ -424,7 +408,8 @@ _http_file_with_proxy = rule(
         "urls": attrs.list(attrs.string(), doc = "URLs to download from"),
         "sha256": attrs.string(doc = "Expected SHA256 checksum"),
         "out": attrs.string(doc = "Output filename"),
-        "proxy": attrs.string(default = "", doc = "HTTP proxy URL"),
+        "proxy": attrs.string(default = "", doc = "HTTP proxy URL (legacy, now read from env)"),
+        "_fetch_script": attrs.dep(default = "//defs/scripts:fetch-source"),
     },
 )
 

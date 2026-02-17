@@ -20,6 +20,13 @@ export_file(
     visibility = ["PUBLIC"],
 )
 
+# Configurable multi-source fetch script
+export_file(
+    name = "fetch-source",
+    src = "fetch_source.sh",
+    visibility = ["PUBLIC"],
+)
+
 # Extract source archives
 export_file(
     name = "extract-source",

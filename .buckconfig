@@ -28,3 +28,7 @@
 
 [buckos]
   use_host_toolchain = false
+
+[mirror]
+  source_order = vendor,buckos-mirror,upstream
+  buckos_mirror_url = https://mirror.buckos.org
