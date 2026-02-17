@@ -1077,6 +1077,13 @@ fi
         mod_dir = mod[DefaultInfo].default_outputs[0]
         cmd.add(mod_dir)
 
+    # Ensure all attributes contribute to the action cache key
+    cache_key = ctx.actions.write(
+        "cache_key.txt",
+        "version={}\n".format(ctx.attrs.version),
+    )
+    cmd.hidden(cache_key)
+
     ctx.actions.run(
         cmd,
         category = "kernel",
@@ -1636,6 +1643,18 @@ done
     for dep_dir in dep_dirs:
         install_cmd.add(dep_dir)
 
+    # Ensure metadata contributes to the action cache key
+    cache_key = ctx.actions.write(
+        "cache_key.txt",
+        "\n".join([
+            "description=" + ctx.attrs.description,
+            "homepage=" + ctx.attrs.homepage,
+            "license=" + ctx.attrs.license,
+            "maintainers=" + ",".join(ctx.attrs.maintainers),
+        ]) + "\n",
+    )
+    install_cmd.hidden(cache_key)
+
     ctx.actions.run(
         install_cmd,
         category = "binary_install",
@@ -1727,13 +1746,32 @@ cp -r "$SRC"/* "$OUT{extract_to}/" 2>/dev/null || true
         is_executable = True,
     )
 
+    # Ensure all attributes contribute to the action cache key
+    cache_key = ctx.actions.write(
+        "cache_key.txt",
+        "\n".join([
+            "version=" + ctx.attrs.version,
+            "description=" + ctx.attrs.description,
+            "homepage=" + ctx.attrs.homepage,
+            "license=" + ctx.attrs.license,
+            "maintainers=" + ",".join(ctx.attrs.maintainers),
+        ]) + "\n",
+    )
+    cmd = cmd_args([
+        "bash",
+        script,
+        install_dir.as_output(),
+        src_dir,
+    ])
+    cmd.hidden(cache_key)
+
+    # Track runtime deps so adding/removing them invalidates the cache
+    for dep in ctx.attrs.deps:
+        dep_dir = dep[DefaultInfo].default_outputs[0]
+        cmd.hidden(dep_dir)
+
     ctx.actions.run(
-        cmd_args([
-            "bash",
-            script,
-            install_dir.as_output(),
-            src_dir,
-        ]),
+        cmd,
         category = "precompiled",
         identifier = ctx.attrs.name,
     )
@@ -5206,6 +5244,24 @@ source "$FRAMEWORK_SCRIPT"
     # Add target dependency directories (cross-compiled libraries/headers)
     for dep_dir in dep_dirs:
         cmd.add(dep_dir)
+
+    # Ensure metadata and package_type contribute to the action cache key
+    cache_key = ctx.actions.write(
+        "cache_key.txt",
+        "\n".join([
+            "package_type=" + ctx.attrs.package_type,
+            "description=" + ctx.attrs.description,
+            "homepage=" + ctx.attrs.homepage,
+            "license=" + ctx.attrs.license,
+            "maintainers=" + ",".join(ctx.attrs.maintainers),
+        ]) + "\n",
+    )
+    cmd.hidden(cache_key)
+
+    # Track pdepend outputs so adding/removing post-deps invalidates the cache
+    for pdep in ctx.attrs.pdepend:
+        pdep_dir = pdep[DefaultInfo].default_outputs[0]
+        cmd.hidden(pdep_dir)
 
     # Determine if this action should be local-only:
     # - Bootstrap packages (use_bootstrap=true) use the host compiler and tools,
