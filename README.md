@@ -52,40 +52,47 @@ buckos-build/
     └── ...               # Additional categories
 ```
 
-## Requirements
-
-- Buck2 (https://buck2.build)
-- Standard build toolchain (gcc, make, etc.) - only for host toolchain mode
-- curl (for downloading sources)
-
 ## Quick Start
 
-### Install Buck2
+The fastest way to get building is with `setup.sh`, which installs system
+packages, downloads Buck2, and configures host toolchain mode:
 
 ```bash
-# Download Buck2
-curl -LO https://github.com/facebook/buck2/releases/download/latest/buck2-x86_64-unknown-linux-gnu.zst
-zstd -d buck2-x86_64-unknown-linux-gnu.zst -o buck2
-chmod +x buck2
-sudo mv buck2 /usr/local/bin/
+bash setup.sh
 ```
 
-### Build Packages
+Supports Arch, Debian/Ubuntu, and Fedora/RHEL. Pass `--yes` to skip
+confirmation (useful for CI/Docker).
+
+Then build:
 
 ```bash
-# Build individual packages
 buck2 build //packages/linux/core:zlib
 buck2 build //packages/linux/core:busybox
 buck2 build //packages/linux/kernel:linux
-
-# Build with host toolchain for faster development
-buck2 build //packages/linux/editors/entr:entr --target-platforms //platforms:linux-target-host
 
 # Build complete rootfs
 buck2 build //packages/linux/system:buckos-rootfs
 
 # Build everything
 buck2 build //:complete
+```
+
+### Manual Setup
+
+If you prefer to manage packages yourself, you need:
+
+- Buck2 (https://buck2.build)
+- GCC, G++, binutils, make, cmake, meson, ninja, autotools
+- python3, perl, curl, tar, xz, bzip2, gzip, lzip, zstd, file, patch
+- pkg-config, bison, flex, gperf, texinfo, gettext
+
+Install Buck2:
+
+```bash
+curl -sL https://github.com/facebook/buck2/releases/download/latest/buck2-x86_64-unknown-linux-gnu.zst \
+  | zstd -d -o ~/.local/bin/buck2
+chmod +x ~/.local/bin/buck2
 ```
 
 ### List Available Targets
@@ -265,17 +272,18 @@ buck2 build //packages/linux/editors/entr:entr --target-platforms //platforms:li
 
 #### Host Toolchain Mode (For Development)
 
-Uses the host system's GCC/clang directly:
+Uses the host system's GCC/clang directly. Enable globally via
+`.buckconfig.local` (gitignored, created by `setup.sh`):
 
-```bash
-# Use host toolchain for faster builds
-buck2 build //packages/linux/editors/entr:entr --target-platforms //platforms:linux-target-host
-```
-
-Or set in `.buckconfig`:
 ```ini
 [buckos]
 use_host_toolchain = true
+```
+
+Or per-build with a platform flag:
+
+```bash
+buck2 build //packages/linux/editors/entr:entr --target-platforms //platforms:linux-target-host
 ```
 
 **Benefits:**
