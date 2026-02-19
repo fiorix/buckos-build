@@ -333,6 +333,89 @@ The next build will be using the pre-compiled toolchain.
 | Quick prototyping | Host |
 | CI/CD builds | Pre-built |
 
+## Local Build Cache (RE Cache)
+
+BuckOS supports a local REAPI cache server that persists build artifacts across
+`buck2 clean`. This means you can clean your build directory and rebuild
+instantly from cache instead of recompiling everything.
+
+### Prerequisites
+
+A container runtime is required:
+
+- **Podman** (preferred) or **Docker**
+
+On btrfs filesystems, podman needs the btrfs storage driver. Create
+`~/.config/containers/storage.conf` if it doesn't exist:
+
+```ini
+[storage]
+driver = "btrfs"
+```
+
+If you previously ran podman with the default overlay driver on btrfs, reset
+the storage:
+
+```bash
+podman system reset --force
+rm -rf ~/.local/share/containers/storage
+```
+
+### Usage
+
+```bash
+# Start the cache server (bazel-remote in a container, gRPC on :9092)
+./scripts/re-cache.sh start
+
+# Enable the cache in Buck2 config
+./scripts/re-cache.sh enable
+buck2 kill
+
+# Build normally — actions execute locally and upload results to cache
+buck2 build //packages/linux/system/libs/compression/zstd:zstd
+
+# After cleaning, rebuilds pull from cache instead of recompiling
+buck2 clean
+buck2 build //packages/linux/system/libs/compression/zstd:zstd  # ~96% cache hits
+
+# When done, disable and stop
+./scripts/re-cache.sh disable
+buck2 kill
+./scripts/re-cache.sh stop
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `./scripts/re-cache.sh enable` | Write `.buckconfig.local` to use the cache |
+| `./scripts/re-cache.sh disable` | Remove `.buckconfig.local` (local-only execution) |
+| `./scripts/re-cache.sh start` | Start the cache server container |
+| `./scripts/re-cache.sh stop` | Stop the cache server |
+| `./scripts/re-cache.sh status` | Show server, cache size, and config status |
+| `./scripts/re-cache.sh purge` | Stop server and delete all cached data |
+
+### How It Works
+
+When enabled, Buck2 is configured with the `cached` execution platform which:
+- Executes all actions locally (no remote workers needed)
+- Checks the cache before each action — on hit, downloads the result instead
+  of re-executing
+- Uploads action results to the cache after local execution
+
+Cache data is stored in `~/.cache/buckos/re-cache/` and persists across
+`buck2 clean` and daemon restarts.
+
+### Troubleshooting
+
+- **buck2 can't connect**: Check `podman logs buckos-re-cache` for errors
+- **Cache misses after enable**: Run `buck2 kill` after `./scripts/re-cache.sh enable`
+  so the daemon picks up the new config
+- **Container won't start**: Check port 9092 isn't in use (`ss -tlnp | grep 9092`)
+- **Permission errors in container**: Ensure `~/.cache/buckos/re-cache` is
+  writable by the container (the script creates it with open permissions)
+- **Podman overlay errors on btrfs**: See the Prerequisites section above
+
 ## Package System
 
 ### Package Types

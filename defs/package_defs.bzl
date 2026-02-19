@@ -399,6 +399,7 @@ def _http_file_with_proxy_impl(ctx: AnalysisContext) -> list[Provider]:
         category = "http_file",
         identifier = ctx.attrs.name,
         local_only = True,
+        allow_cache_upload = True,
         env = _get_download_env(),
     )
 
@@ -504,6 +505,7 @@ exec bash "$DOWNLOAD_SCRIPT" "$OUT_FILE" "$BASE_URL" "$EXPECTED_SHA256" "$PROXY"
         category = "download_signature",
         identifier = ctx.attrs.name,
         local_only = True,  # Network access needed (unless vendored)
+        allow_cache_upload = True,
         env = _get_download_env(),
     )
 
@@ -577,6 +579,7 @@ def _extract_source_impl(ctx: AnalysisContext) -> list[Provider]:
         category = "extract",
         identifier = ctx.attrs.name,
         local_only = True,  # http_file outputs may need local execution
+        allow_cache_upload = True,
     )
 
     return [DefaultInfo(default_output = out_dir)]
@@ -792,6 +795,7 @@ done
         ] + config_files),
         category = "kernel_config",
         identifier = ctx.attrs.name,
+        allow_cache_upload = True,
     )
 
     return [DefaultInfo(default_output = output)]
@@ -1105,6 +1109,7 @@ fi
         cmd,
         category = "kernel",
         identifier = ctx.attrs.name,
+        allow_cache_upload = True,
     )
 
     return [DefaultInfo(default_output = install_dir)]
@@ -1645,6 +1650,7 @@ done
         combine_cmd,
         category = "combine",
         identifier = ctx.attrs.name + "-combine",
+        allow_cache_upload = True,
     )
 
     # Then run the installation
@@ -1676,6 +1682,7 @@ done
         install_cmd,
         category = "binary_install",
         identifier = ctx.attrs.name,
+        allow_cache_upload = True,
     )
 
     return [
@@ -1791,6 +1798,7 @@ cp -r "$SRC"/* "$OUT{extract_to}/" 2>/dev/null || true
         cmd,
         category = "precompiled",
         identifier = ctx.attrs.name,
+        allow_cache_upload = True,
     )
 
     return [
@@ -5362,6 +5370,7 @@ source "$FRAMEWORK_SCRIPT"
         category = "ebuild",
         identifier = ctx.attrs.name,
         local_only = is_local_only,
+        allow_cache_upload = True,
     )
 
     return [
