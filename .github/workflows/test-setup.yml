@@ -1,0 +1,38 @@
+name: Test Setup Script
+
+on:
+  push:
+    branches: [main, master]
+    paths: [setup.sh]
+  pull_request:
+    branches: [main, master]
+    paths: [setup.sh]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test-setup:
+    name: "Test setup.sh (${{ matrix.distro }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu:24.04
+          - distro: fedora:41
+          - distro: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test setup.sh in Docker
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /tmp/test "${{ matrix.distro }}" \
+            bash -c '
+              cp -r /src/. . &&
+              bash setup.sh --yes &&
+              export PATH="$HOME/.local/bin:$PATH" &&
+              gcc --version &&
+              buck2 --version &&
+              grep use_host_toolchain .buckconfig.local
+            '
