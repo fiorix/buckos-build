@@ -68,15 +68,9 @@ package(
         "//packages/linux/system/libs/utility/libffi:libffi",
     ],
 
-    # Fix lib-dynload path: Python stdlib is in lib/python3.12 but lib-dynload is in lib64/python3.12
-    # Create a symlink so Python can find its C extensions
+    # Fix lib-dynload path: Python stdlib is in lib/python3.12 but
+    # C extensions install to lib64/python3.12/lib-dynload on x86_64.
     post_install_cmds = ["""
-        # Create lib-dynload symlink in lib/python3.12 pointing to lib64/python3.12/lib-dynload
-        if [ -d "$DESTDIR/usr/lib64/python3.12/lib-dynload" ] && [ ! -e "$DESTDIR/usr/lib/python3.12/lib-dynload" ]; then
-            ln -sf ../../lib64/python3.12/lib-dynload "$DESTDIR/usr/lib/python3.12/lib-dynload"
-        fi
-    """, """
-        # Create lib-dynload symlink
         if [ -d "$DESTDIR/usr/lib64/python3.12/lib-dynload" ] && [ ! -e "$DESTDIR/usr/lib/python3.12/lib-dynload" ]; then
             ln -sf ../../lib64/python3.12/lib-dynload "$DESTDIR/usr/lib/python3.12/lib-dynload"
         fi
@@ -115,13 +109,20 @@ package(
         "ac_cv_header_ncurses_h=no",
     ],
 
-    # Use host toolchain - do not use bootstrap cross-compiler
+    # GCC 14+ false positive in libmpdec io.c (upstream CPython issue)
+    extra_cflags = ["-Wno-stringop-overflow"],
 
-    # Minimal dependencies - only what's needed for Python to work
     deps = [
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/libs/data/expat:expat",
         "//packages/linux/system/libs/utility/libffi:libffi",
     ],
 
+    # Fix lib-dynload path: C extensions install to lib64/ on x86_64
+    # but Python looks in lib/python3.12/lib-dynload/.
+    post_install_cmds = ["""
+        if [ -d "$DESTDIR/usr/lib64/python3.12/lib-dynload" ] && [ ! -e "$DESTDIR/usr/lib/python3.12/lib-dynload" ]; then
+            ln -sf ../../lib64/python3.12/lib-dynload "$DESTDIR/usr/lib/python3.12/lib-dynload"
+        fi
+    """],
 )
