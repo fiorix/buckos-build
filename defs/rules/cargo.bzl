@@ -102,7 +102,6 @@ cargo_package = rule(
         "cargo_args": attrs.list(attrs.string(), default = []),
         "bins": attrs.list(attrs.string(), default = []),
         "vendor_deps": attrs.option(attrs.dep(), default = None),
-        "install_script": attrs.option(attrs.string(), default = None),
         "_cargo_tool": attrs.default_only(
             attrs.exec_dep(default = "//tools:cargo_helper"),
         ),

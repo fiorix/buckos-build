@@ -262,7 +262,6 @@ mozbuild_package = rule(
     attrs = COMMON_PACKAGE_ATTRS | {
         # Mozbuild-specific
         "mozconfig_options": attrs.list(attrs.string(), default = []),
-        "install_script": attrs.string(default = ""),
         "_mozbuild_tool": attrs.default_only(
             attrs.exec_dep(default = "//tools:mozbuild_helper"),
         ),
