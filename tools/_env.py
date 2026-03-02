@@ -118,6 +118,43 @@ def setup_path(args, env, host_path=""):
         env["PATH"] = prepend + (":" + env["PATH"] if env.get("PATH") else "")
 
 
+def write_pkg_config_wrapper(wrapper_dir):
+    """Write a pkg-config wrapper that passes --define-prefix.
+
+    Uses a Python script (not shell) so it works in environments
+    without /bin/sh (e.g. remote execution).  The wrapper removes
+    its own directory from PATH to avoid infinite recursion, then
+    execs the real pkg-config with --define-prefix prepended.
+    """
+    os.makedirs(wrapper_dir, exist_ok=True)
+    wrapper = os.path.join(wrapper_dir, "pkg-config")
+    with open(wrapper, "w") as f:
+        f.write(
+            '#!/usr/bin/env python3\n'
+            'import os, sys\n'
+            'sd = os.path.dirname(os.path.abspath(__file__))\n'
+            'p = os.environ.get("PATH", "").split(":")\n'
+            'os.environ["PATH"] = ":".join(d for d in p if os.path.abspath(d) != sd)\n'
+            'os.execvp("pkg-config", ["pkg-config", "--define-prefix"] + sys.argv[1:])\n'
+        )
+    os.chmod(wrapper, 0o755)
+    return wrapper_dir
+
+
+def write_stub_script(path, exit_code=0):
+    """Write a no-op stub script (e.g. for makeinfo, autotools regen).
+
+    Uses Python instead of shell so it works without /bin/sh.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(
+            '#!/usr/bin/env python3\n'
+            'import sys; sys.exit({})\n'.format(exit_code)
+        )
+    os.chmod(path, 0o755)
+
+
 def sanitize_global_env():
     """Replace os.environ in-place with a clean environment.
 

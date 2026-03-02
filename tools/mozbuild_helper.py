@@ -19,7 +19,7 @@ import subprocess
 import sys
 import json
 
-from _env import clean_env, sanitize_filenames, sanitize_global_env
+from _env import clean_env, sanitize_filenames, sanitize_global_env, write_pkg_config_wrapper
 
 
 def _resolve(path):
@@ -49,14 +49,7 @@ def _setup_writable_source(source_dir, work_dir):
 
 def _setup_pkg_config_wrapper(bin_dir):
     """Create pkg-config wrapper that uses --define-prefix."""
-    os.makedirs(bin_dir, exist_ok=True)
-    wrapper = os.path.join(bin_dir, "pkg-config")
-    with open(wrapper, "w") as f:
-        f.write('#!/bin/sh\n'
-                'SELF_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-                'PATH="${PATH#"$SELF_DIR:"}" exec pkg-config --define-prefix "$@"\n')
-    os.chmod(wrapper, 0o755)
-    return bin_dir
+    return write_pkg_config_wrapper(bin_dir)
 
 
 def _build_dep_env(dep_base_dirs, pkg_config_path, base_path=None):

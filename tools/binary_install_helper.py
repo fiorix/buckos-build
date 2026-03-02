@@ -16,7 +16,7 @@ import stat
 import subprocess
 import sys
 
-from _env import clean_env, sanitize_filenames
+from _env import clean_env, sanitize_filenames, write_stub_script
 
 
 def _resolve_flag_paths(value, project_root):
@@ -215,11 +215,7 @@ def main():
     )
     if not has_makeinfo:
         stub_dir = os.path.join(workdir, ".stub-bin")
-        os.makedirs(stub_dir, exist_ok=True)
-        stub = os.path.join(stub_dir, "makeinfo")
-        with open(stub, "w") as f:
-            f.write("#!/bin/sh\nexit 0\n")
-        os.chmod(stub, 0o755)
+        write_stub_script(os.path.join(stub_dir, "makeinfo"))
         env["PATH"] = stub_dir + ":" + env.get("PATH", "")
 
     # Copy source to writable directory

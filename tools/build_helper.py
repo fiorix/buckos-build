@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from _env import clean_env, sanitize_filenames
+from _env import clean_env, sanitize_filenames, write_pkg_config_wrapper
 
 
 def _can_unshare_net():
@@ -595,14 +595,7 @@ def main():
 
     # Create a pkg-config wrapper that always passes --define-prefix so
     # .pc files in Buck2 dep directories resolve paths correctly.
-    wrapper_dir = os.path.join(output_dir, ".pkgconf-wrapper")
-    os.makedirs(wrapper_dir, exist_ok=True)
-    wrapper = os.path.join(wrapper_dir, "pkg-config")
-    with open(wrapper, "w") as f:
-        f.write('#!/bin/sh\n'
-                'SELF_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-                'PATH="${PATH#"$SELF_DIR:"}" exec pkg-config --define-prefix "$@"\n')
-    os.chmod(wrapper, 0o755)
+    wrapper_dir = write_pkg_config_wrapper(os.path.join(output_dir, ".pkgconf-wrapper"))
 
     # Apply extra environment variables first (toolchain flags like -march).
     for entry in args.extra_env:
