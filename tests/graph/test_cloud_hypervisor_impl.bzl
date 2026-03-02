@@ -9,8 +9,8 @@ BOOT_SCRIPT_NAMES = [
     "ch-boot-direct",
     "ch-boot-direct-full",
     "ch-boot-direct-minimal",
-    "ch-boot-firmware-pvh",
-    "ch-boot-firmware-uefi",
+    "ch-boot-network",
+    "ch-boot-network-full",
     "ch-boot-virtiofs",
     "ch-boot-virtiofs-full",
 ]
