@@ -103,10 +103,7 @@ package(
         "--with-system-expat",
         "--with-system-ffi",
         "--with-ensurepip=no",  # Not needed for code generation
-        # Disable features that cause cross-compilation issues
         "ac_cv_lib_readline_readline=no",
-        "ac_cv_header_curses_h=no",
-        "ac_cv_header_ncurses_h=no",
     ],
 
     # GCC 14+ false positive in libmpdec io.c (upstream CPython issue)
@@ -116,6 +113,13 @@ package(
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/libs/data/expat:expat",
         "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/terminal/ncurses:ncurses",
+        "//packages/linux/system/libs/database/sqlite:sqlite",  # _sqlite3 (diskcache/glean_parser)
+        # openssl omitted — python-host is an auto_tool_dep, adding openssl
+        # creates a cycle (python-host → openssl → openssl-build → python-host).
+        # hashlib uses builtin _md5/_sha256 fallbacks without _hashlib.
+        "//packages/linux/system/libs/compression/bzip2:bzip2",  # _bz2 (pip/setuptools tarfile)
+        "//packages/linux/system/libs/compression/xz:xz",  # _lzma (pip/setuptools tarfile)
     ],
 
     # Fix lib-dynload path: C extensions install to lib64/ on x86_64
