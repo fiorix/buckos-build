@@ -108,6 +108,7 @@ def _merge_sbin_into_bin(rootfs):
             if not os.path.exists(dst):
                 shutil.move(src, dst)
             elif os.path.isfile(src):
+                os.remove(dst)
                 shutil.copy2(src, dst)
         shutil.rmtree(usr_sbin)
         os.symlink("bin", usr_sbin)
