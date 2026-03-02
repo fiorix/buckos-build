@@ -30,10 +30,8 @@ find \"$DESTDIR\" -name '*.la' -delete
 """],
     deps = [
         "//packages/linux/graphics/xorg/xorgproto:xorgproto",
-                "//packages/linux/graphics/xorg/libXau:libXau",
-                "//packages/linux/graphics/xorg/libXdmcp:libXdmcp",
-                "//packages/linux/graphics/xorg/xcb-proto:xcb-proto",
-                "//packages/linux/lang/python:python-host"
+        "//packages/linux/graphics/xorg/libXau:libXau",
+        "//packages/linux/graphics/xorg/libXdmcp:libXdmcp",
+        "//packages/linux/graphics/xorg/xcb-proto:xcb-proto",
     ],
-    # Python is used for code generation at build time, needs to run on host
 )

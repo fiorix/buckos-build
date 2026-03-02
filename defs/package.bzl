@@ -243,6 +243,36 @@ def package(
     if sha256 != None:
         build_kwargs.setdefault("src_sha256", sha256)
 
+    # -- Auto-inject build tools so packages use buckos binaries, not host ---
+    # Without this, configure probes find /usr/bin/python3, /usr/bin/meson,
+    # etc. and embed them in build.ninja / Makefiles.  Host python crashes
+    # on ABI mismatches (expat); host meson/cmake may be wrong versions.
+    # Skip packages in python-host's own dep closure to avoid cycles.
+    _TOOL_BLOCKLIST = ("python-host", "python", "zlib", "expat", "libffi",
+                       "meson", "ninja", "cmake")
+    _auto_tool_deps = []
+    if name not in _TOOL_BLOCKLIST:
+        if build_rule in ("autotools", "meson", "cmake", "mozbuild"):
+            _auto_tool_deps.append("//packages/linux/lang/python:python-host")
+        if build_rule in ("meson", "mozbuild"):
+            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/meson:meson")
+            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/ninja:ninja")
+        if build_rule == "cmake":
+            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/cmake:cmake")
+            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/ninja:ninja")
+    if _auto_tool_deps:
+        raw_deps = build_kwargs.pop("deps", [])
+        if type(raw_deps) == "Select":
+            all_deps = raw_deps
+            for td in _auto_tool_deps:
+                all_deps = all_deps + [td]
+        else:
+            all_deps = list(raw_deps)
+            for td in _auto_tool_deps:
+                if td not in all_deps:
+                    all_deps.append(td)
+        build_kwargs["deps"] = all_deps
+
     # -- 2. Resolve USE-conditional deps -------------------------------------
     raw_deps = build_kwargs.pop("deps", [])
     all_deps = raw_deps if type(raw_deps) == "Select" else list(raw_deps)

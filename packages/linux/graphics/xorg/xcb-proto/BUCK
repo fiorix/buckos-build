@@ -18,8 +18,5 @@ package(
         "--sysconfdir=/etc",
         "--datadir=/usr/share",
     ],
-    # Python is used for code generation at build time, needs to run on host
-    deps = [
-        "//packages/linux/lang/python:python-host",
-    ],
+    deps = [],
 )

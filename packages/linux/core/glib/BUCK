@@ -36,9 +36,7 @@ package(
     },
     deps = [
         "//packages/linux/core/zlib:zlib",
-                "//packages/linux/system/libs/utility/libffi:libffi",
-                "//packages/linux/system/libs/utility/pcre2:pcre2",
-                "//packages/linux/lang/python:python-host"
+        "//packages/linux/system/libs/utility/libffi:libffi",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
     ],
-    # Python is used for code generation at build time
 )

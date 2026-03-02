@@ -30,8 +30,8 @@ package(
     # This allows packages that depend on glib to find tools like glib-mkenums
     deps = [
         "//packages/linux/system/libs/utility/libffi:libffi",
-                "//packages/linux/core/zlib:zlib",
-                "//packages/linux/system/libs/utility/pcre2:pcre2",
-                "//packages/linux/dev-libs/python/packaging:packaging"
+        "//packages/linux/core/zlib:zlib",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        "//packages/linux/dev-libs/python/packaging:packaging",
     ],
 )
