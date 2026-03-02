@@ -277,6 +277,17 @@ def main():
     else:
         cwd = project_root
 
+    # Override make's SHELL via MAKEFLAGS so any make invocation inside
+    # the install script uses buckos bash instead of /bin/sh (which
+    # doesn't exist on remote execution workers).
+    for _d in env.get("PATH", "").split(":"):
+        _bash = os.path.join(_d, "bash") if _d else ""
+        if _bash and os.path.isfile(_bash) and os.access(_bash, os.X_OK):
+            existing_flags = env.get("MAKEFLAGS", "")
+            if "SHELL=" not in existing_flags:
+                env["MAKEFLAGS"] = (existing_flags + " " if existing_flags else "") + f"SHELL={_bash}"
+            break
+
     # Run install script via bash -e (matching original `source` semantics)
     result = subprocess.run(
         ["bash", "-e", install_script],
