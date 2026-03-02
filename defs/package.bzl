@@ -243,23 +243,60 @@ def package(
     if sha256 != None:
         build_kwargs.setdefault("src_sha256", sha256)
 
-    # -- Auto-inject build tools so packages use buckos binaries, not host ---
-    # Without this, configure probes find /usr/bin/python3, /usr/bin/meson,
-    # etc. and embed them in build.ninja / Makefiles.  Host python crashes
-    # on ABI mismatches (expat); host meson/cmake may be wrong versions.
-    # Skip packages in python-host's own dep closure to avoid cycles.
-    _TOOL_BLOCKLIST = ("python-host", "python", "zlib", "expat", "libffi",
-                       "meson", "ninja", "cmake")
+    # -- Auto-inject build host tools for isolation from host /usr/bin --------
+    # Without this, configure/make/ninja find host python, perl, sh, sed,
+    # coreutils, etc.  Host python crashes on ABI mismatches; host tools
+    # don't exist on RE.  Inject buckos-built tools so they appear first
+    # in PATH via tset_bin_dirs.txt.
+    #
+    # Blocklist = union of all injected tools' dep closures (prevents cycles).
+    # Queried via: buck2 query 'deps(//pkg)' for each tool.
+    _TOOL_BLOCKLIST = (
+        # The injected tools themselves
+        "bash", "perl", "python-host", "python", "make",
+        "coreutils", "findutils", "sed", "gawk", "grep",
+        "diffutils", "patch", "tar", "gzip", "xz", "bzip2",
+        "m4", "pkg-config", "meson", "ninja", "cmake",
+        # Deps of the above (would create cycles if injected)
+        "zlib", "expat", "libffi", "ncurses", "readline", "pcre2",
+        "acl", "attr", "libcap", "gettext", "autoconf", "automake", "libtool",
+    )
+    _CONFIGURABLE_RULES = ("autotools", "meson", "cmake", "mozbuild")
     _auto_tool_deps = []
+    if name not in _TOOL_BLOCKLIST and build_rule in _CONFIGURABLE_RULES:
+        # Core POSIX utilities (sh, coreutils, text processing)
+        _auto_tool_deps.extend([
+            "//packages/linux/core/bash:bash",
+            "//packages/linux/system/apps/coreutils:coreutils",
+            "//packages/linux/system/apps/findutils:findutils",
+            "//packages/linux/editors/sed:sed",
+            "//packages/linux/editors/gawk:gawk",
+            "//packages/linux/editors/grep:grep",
+            "//packages/linux/editors/diffutils:diffutils",
+            "//packages/linux/editors/patch:patch",
+            "//packages/linux/system/apps/tar:tar",
+            "//packages/linux/system/libs/compression/gzip:gzip",
+            "//packages/linux/system/libs/compression/xz:xz",
+            "//packages/linux/system/libs/compression/bzip2:bzip2",
+            # Build tool interpreters
+            "//packages/linux/lang/python:python-host",
+            "//packages/linux/lang/perl:perl",
+            # Build system tools
+            "//packages/linux/dev-tools/build-systems/m4:m4",
+            "//packages/linux/dev-tools/build-systems/make:make",
+            "//packages/linux/dev-tools/build-systems/pkg-config:pkg-config",
+        ])
     if name not in _TOOL_BLOCKLIST:
-        if build_rule in ("autotools", "meson", "cmake", "mozbuild"):
-            _auto_tool_deps.append("//packages/linux/lang/python:python-host")
         if build_rule in ("meson", "mozbuild"):
-            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/meson:meson")
-            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/ninja:ninja")
+            _auto_tool_deps.extend([
+                "//packages/linux/dev-tools/build-systems/meson:meson",
+                "//packages/linux/dev-tools/build-systems/ninja:ninja",
+            ])
         if build_rule == "cmake":
-            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/cmake:cmake")
-            _auto_tool_deps.append("//packages/linux/dev-tools/build-systems/ninja:ninja")
+            _auto_tool_deps.extend([
+                "//packages/linux/dev-tools/build-systems/cmake:cmake",
+                "//packages/linux/dev-tools/build-systems/ninja:ninja",
+            ])
     if _auto_tool_deps:
         raw_deps = build_kwargs.pop("deps", [])
         if type(raw_deps) == "Select":

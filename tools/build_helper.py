@@ -783,6 +783,17 @@ def main():
         else:
             cmd.append(arg)
 
+    # Override make's SHELL so recipe lines use buckos bash instead of
+    # /bin/sh (which doesn't exist on remote execution workers).
+    if args.build_system == "make":
+        _has_shell_arg = any(a.startswith("SHELL=") for a in args.make_args)
+        if not _has_shell_arg:
+            for _d in env.get("PATH", "").split(":"):
+                _bash = os.path.join(_d, "bash") if _d else ""
+                if _bash and os.path.isfile(_bash) and os.access(_bash, os.X_OK):
+                    cmd.append(f"SHELL={_bash}")
+                    break
+
     # Wrap with unshare --net for network isolation (reproducibility)
     if _NETWORK_ISOLATED:
         cmd = ["unshare", "--net"] + cmd
