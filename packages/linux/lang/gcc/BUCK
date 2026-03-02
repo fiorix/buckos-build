@@ -28,21 +28,22 @@ for dep_dir in "${_deps[@]}"; do
         echo "Found gcc-pass2 at: $dep_dir"
         TOOLS="$dep_dir/tools"
 
-        # Copy compiler binaries (prefer unprefixed, fall back to prefixed)
+        # Copy compiler binaries, dereferencing symlinks so the copies
+        # are standalone (gcc -> x86_64-buckos-linux-gnu-gcc is a symlink
+        # in gcc-pass2 whose target won't exist in $OUT).
         for bin in gcc g++ cpp gcov gcc-ar gcc-nm gcc-ranlib; do
-            if [ -f "$TOOLS/bin/$bin" ]; then
-                cp -a "$TOOLS/bin/$bin" "$OUT/usr/bin/$bin"
+            if [ -e "$TOOLS/bin/$bin" ]; then
+                cp -aL "$TOOLS/bin/$bin" "$OUT/usr/bin/$bin"
                 echo "Installed $bin"
-            elif [ -f "$TOOLS/bin/${BUCKOS_TARGET}-$bin" ]; then
-                cp -a "$TOOLS/bin/${BUCKOS_TARGET}-$bin" "$OUT/usr/bin/$bin"
+            elif [ -e "$TOOLS/bin/${BUCKOS_TARGET}-$bin" ]; then
+                cp -aL "$TOOLS/bin/${BUCKOS_TARGET}-$bin" "$OUT/usr/bin/$bin"
                 echo "Installed $bin (from ${BUCKOS_TARGET}-$bin)"
             fi
         done
 
         # Create standard symlinks
-        cd "$OUT/usr/bin"
-        [ -f gcc ] && ln -sf gcc cc
-        [ -f g++ ] && ln -sf g++ c++
+        [ -f "$OUT/usr/bin/gcc" ] && ln -sf gcc "$OUT/usr/bin/cc"
+        [ -f "$OUT/usr/bin/g++" ] && ln -sf g++ "$OUT/usr/bin/c++"
 
         # Copy libexec (cc1, cc1plus, collect2, lto-wrapper)
         if [ -d "$TOOLS/libexec/gcc" ]; then
@@ -57,7 +58,7 @@ for dep_dir in "${_deps[@]}"; do
             for f in "$libdir"/libgcc_s.so* "$libdir"/libstdc++.so* \
                      "$libdir"/libgomp.so* "$libdir"/libatomic.so* \
                      "$libdir"/libitm.so* "$libdir"/libquadmath.so*; do
-                [ -f "$f" ] && cp -a "$f" "$OUT/usr/lib64/" 2>/dev/null
+                [ -e "$f" ] && cp -aL "$f" "$OUT/usr/lib64/" 2>/dev/null
             done
         done
 
@@ -177,14 +178,13 @@ for dep_dir in "${_deps[@]}"; do
         for libdir in "$dep_dir/tools/${BUCKOS_TARGET}/lib" "$dep_dir/tools/${BUCKOS_TARGET}/lib64" \
                       "$dep_dir/tools/lib" "$dep_dir/tools/lib64"; do
             for f in "$libdir"/libstdc++.so* "$libdir"/libgcc_s.so*; do
-                [ -f "$f" ] && cp -a "$f" "$OUT/usr/lib64/"
+                [ -e "$f" ] && cp -aL "$f" "$OUT/usr/lib64/"
             done
         done
 
         # Create symlinks
-        cd "$OUT/usr/lib64"
-        [ -f libstdc++.so.6 ] && ln -sf libstdc++.so.6 libstdc++.so
-        [ -f libgcc_s.so.1 ] && ln -sf libgcc_s.so.1 libgcc_s.so
+        [ -f "$OUT/usr/lib64/libstdc++.so.6" ] && ln -sf libstdc++.so.6 "$OUT/usr/lib64/libstdc++.so"
+        [ -f "$OUT/usr/lib64/libgcc_s.so.1" ] && ln -sf libgcc_s.so.1 "$OUT/usr/lib64/libgcc_s.so"
 
         break
     fi
