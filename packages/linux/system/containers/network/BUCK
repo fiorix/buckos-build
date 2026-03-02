@@ -35,10 +35,10 @@ package(
     description = "Container network stack for Podman",
     homepage = "https://github.com/containers/netavark",
     license = "Apache-2.0",
-    install_script = """
-mkdir -p "$OUT/usr/libexec/podman"
-install -m 755 target/release/netavark "$OUT/usr/libexec/podman/"
-""",
+    post_install_cmds = ["""
+mkdir -p "$DESTDIR/usr/libexec/podman"
+install -m 755 "$BUILD_DIR/target/release/netavark" "$DESTDIR/usr/libexec/podman/"
+"""],
     deps = [
         "//packages/linux/dev-libs/serialization/protobuf:protobuf",
     ],
@@ -54,10 +54,10 @@ package(
     description = "Authoritative DNS server for container records",
     homepage = "https://github.com/containers/aardvark-dns",
     license = "Apache-2.0",
-    install_script = """
-mkdir -p "$OUT/usr/libexec/podman"
-install -m 755 target/release/aardvark-dns "$OUT/usr/libexec/podman/"
-""",
+    post_install_cmds = ["""
+mkdir -p "$DESTDIR/usr/libexec/podman"
+install -m 755 "$BUILD_DIR/target/release/aardvark-dns" "$DESTDIR/usr/libexec/podman/"
+"""],
 )
 
 # slirp4netns - User-mode networking for unprivileged network namespaces

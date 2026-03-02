@@ -13,12 +13,8 @@ package(
     description = "GNU find, xargs, and locate utilities",
     homepage = "https://www.gnu.org/software/findutils",
     license = "GPL-3+",
-    use_deps = {
-        "selinux": "//packages/linux/system/security/selinux:selinux",
-    },
     use_configure = {
         "nls": ("--enable-nls", "--disable-nls"),
-        "selinux": ("--with-selinux", "--without-selinux"),
         "static": ("--enable-static", "--disable-static"),
         "test-full": ("--enable-test-full", "--disable-test-full"),
     },

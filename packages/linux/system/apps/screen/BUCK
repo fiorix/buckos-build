@@ -14,14 +14,12 @@ package(
     license = "GPL-3+",
     use_deps = {
         "pam": "//packages/linux/system/security/auth/pam:pam",
-        "selinux": "//packages/linux/system/security/selinux:selinux",
     },
     use_configure = {
         "debug": ("--enable-debug", "--disable-debug"),
         "multiuser": ("--enable-socket-dir", "--disable-socket-dir"),
         "nethack": ("--enable-nethack", "--disable-nethack"),
         "pam": ("--enable-pam", "--disable-pam"),
-        "selinux": ("--enable-selinux", "--disable-selinux"),
         "utempter": ("--enable-utempter", "--disable-utempter"),
     },
     configure_args = [

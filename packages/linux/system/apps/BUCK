@@ -91,7 +91,6 @@ filegroup(
 filegroup(
     name = "bpf-packages",
     srcs = [
-        "//packages/linux/system/libs/bpf/libbpf:libbpf",
         "//packages/linux/system/apps/bpf/bpftool:bpftool",
         "//packages/linux/system/apps/bpf/bpftrace:bpftrace",
         "//packages/linux/system/apps/bpf/bpftop:bpftop",

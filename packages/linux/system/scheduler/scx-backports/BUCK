@@ -16,7 +16,6 @@ package(
     ],
     deps = [
         "//packages/linux/core/llvm:llvm",
-        "//packages/linux/system/libs/bpf/libbpf:libbpf",
         "//packages/linux/system/libs/bpf/bpftool:bpftool",
         "//packages/linux/system/libs/elfutils:elfutils",
         "//packages/linux/dev-libs/compression/zlib:zlib",

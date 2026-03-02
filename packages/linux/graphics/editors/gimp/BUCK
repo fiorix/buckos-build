@@ -50,7 +50,6 @@ DESTDIR=$OUT meson install
         "//packages/linux/desktop/gtk:gtk3",
                 "//packages/linux/dev-libs/glib:glib",
                 "//packages/linux/graphics/utilities/gegl:gegl",
-                "//packages/linux/graphics/utilities/babl:babl",
                 "//packages/linux/lang/python:python"
     ],
 )

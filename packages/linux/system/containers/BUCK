@@ -52,27 +52,6 @@ filegroup(
     default_target_platform = "//platforms:linux-target",
 )
 
-# Container utilities and monitoring
-filegroup(
-    name = "container-utilities",
-    srcs = [
-        "//packages/linux/system/containers/utils:umoci",
-        "//packages/linux/system/containers/utils:dive",
-        "//packages/linux/system/containers/utils:ctop",
-        "//packages/linux/system/containers/utils:lazydocker",
-    ],
-    default_target_platform = "//platforms:linux-target",
-)
-
-# Container security tools
-filegroup(
-    name = "container-security",
-    srcs = [
-        "//packages/linux/system/containers/utils:trivy",
-    ],
-    default_target_platform = "//platforms:linux-target",
-)
-
 # Complete container stack
 filegroup(
     name = "all-containers",
@@ -81,9 +60,6 @@ filegroup(
         ":container-networking",
         ":container-storage",
         ":podman-tools",
-        ":container-utilities",
-        ":container-security",
-        "//packages/linux/system/containers/utils:docker-credential-helpers",
     ],
     default_target_platform = "//platforms:linux-target",
 )

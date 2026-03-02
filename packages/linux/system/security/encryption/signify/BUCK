@@ -21,6 +21,5 @@ package(
     ],
     deps = [
         "//packages/linux/system/security/encryption:libbsd",
-        "//packages/linux/system/security/encryption:libmd",
     ],
 )

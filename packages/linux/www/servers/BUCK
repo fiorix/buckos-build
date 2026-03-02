@@ -5,7 +5,6 @@ filegroup(
     srcs = [
         "//packages/linux/www/servers/nginx:nginx",
         "//packages/linux/www/servers/caddy:caddy",
-        "//packages/linux/www/servers/lighttpd:lighttpd",
     ],
     default_target_platform = "//platforms:linux-target",
 )
@@ -25,7 +24,6 @@ filegroup(
     name = "lightweight",
     srcs = [
         "//packages/linux/www/servers/caddy:caddy",
-        "//packages/linux/www/servers/lighttpd:lighttpd",
     ],
     default_target_platform = "//platforms:linux-target",
 )
@@ -43,7 +41,6 @@ filegroup(
     srcs = [
         "//packages/linux/www/servers/nginx:nginx",
         "//packages/linux/www/servers/caddy:caddy",
-        "//packages/linux/www/servers/lighttpd:lighttpd",
         "//packages/linux/www/servers/haproxy:haproxy",
         "//packages/linux/www/servers/traefik:traefik",
         "//packages/linux/www/servers/squid:squid",

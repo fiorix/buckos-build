@@ -19,7 +19,6 @@ package(
         "-DNO_BENCHMARKS=ON",
     ],
     deps = [
-        "//packages/linux/system/libs/bpf/libbpf:libbpf",
         "//packages/linux/core/libnl:libnl",
     ],
 )

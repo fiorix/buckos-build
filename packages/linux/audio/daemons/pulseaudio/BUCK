@@ -20,11 +20,8 @@ package(
     # Conditional dependencies based on USE flags
     use_deps = {
         "alsa": "//packages/linux/system/libs/audio/alsa-lib:alsa-lib",
-        "bluetooth": "//packages/linux/system/bluetooth/bluez:bluez",
         "dbus": "//packages/linux/system/libs/ipc/dbus:dbus",
         "gstreamer": "//packages/linux/graphics/video/gstreamer:gstreamer",
-        "jack": "//packages/linux/audio/daemons/jack:jack",
-        "X": "//packages/linux/desktop/xorg:xorg-libs",
         "gtk": "//packages/linux/desktop/gtk:gtk3",
         "ssl": "//packages/linux/system/libs/crypto/openssl:openssl",
         "systemd": "//packages/linux/system/init/systemd:systemd",

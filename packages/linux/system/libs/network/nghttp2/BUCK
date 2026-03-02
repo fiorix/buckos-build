@@ -28,11 +28,6 @@ package(
         "systemd": ("--enable-systemd", "--disable-systemd"),
         "tools": ("--enable-app", "--disable-app"),
         "utils": ("--enable-utils", "--disable-utils"),
-        "xml": ("--enable-libxml2", "--disable-libxml2"),
-    },
-
-    use_deps = {
-        "xml": "//packages/linux/system/libs/xml/libxml2:libxml2",
     },
 
     configure_args = [

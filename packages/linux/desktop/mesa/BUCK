@@ -14,7 +14,7 @@ package(
     homepage = "https://www.mesa3d.org/",
     license = "MIT",
     use_configure = {
-        "X": ("-Dplatforms=x11,wayland -Dglx=dri", "-Dplatforms=wayland -Dglx=disabled"),
+        "X": ("-Dplatforms=x11,wayland", "-Dplatforms=wayland"),
         "llvm": ("-Dllvm=enabled -Damd-use-llvm=true -Dgallium-drivers=radeonsi,llvmpipe,virgl", "-Dllvm=disabled -Dgallium-drivers=softpipe,virgl"),
         "vulkan": ("-Dvulkan-drivers=intel,intel_hasvk,amd", "-Dvulkan-drivers="),
     },
@@ -27,7 +27,6 @@ package(
             "//packages/linux/graphics/xorg/libXrandr:libXrandr",
             "//packages/linux/graphics/xorg/libXxf86vm:libXxf86vm",
             "//packages/linux/graphics/xorg/xorgproto:xorgproto",
-            "//packages/linux/graphics/xorg/libxshmfence:libxshmfence",
         ],
         "llvm": [
             "//packages/linux/core/llvm:llvm",
@@ -38,6 +37,7 @@ package(
         # Core features for mesa 26.0.0
         "-Degl=enabled",
         "-Dgbm=enabled",
+        "-Dglx=disabled",
         "-Dgles1=disabled",
         "-Dgles2=enabled",
         # Disable OpenCL/Rusticl to avoid SPIRV-LLVM-Translator requirement

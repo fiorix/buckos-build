@@ -146,7 +146,6 @@ filegroup(
         "//packages/linux/network/tcpdump:tcpdump",
         "//packages/linux/network/ngrep:ngrep",
         "//packages/linux/network/tshark:tshark",
-        "//packages/linux/network/wireshark:wireshark",
     ],
     default_target_platform = "//platforms:linux-target",
 )

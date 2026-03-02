@@ -17,7 +17,6 @@ package(
         "acl": "//packages/linux/system/libs/ipc/acl:acl",
         "attr": "//packages/linux/system/libs/ipc/attr:attr",
         "caps": "//packages/linux/system/libs/ipc/libcap:libcap",
-        "selinux": "//packages/linux/system/security/selinux:selinux",
     },
     use_configure = {
         "acl": ("--enable-acl", "--disable-acl"),
@@ -29,7 +28,6 @@ package(
         "multicall": ("--enable-multicall", "--disable-multicall"),
         "nls": ("--enable-nls", "--disable-nls"),
         "openssl": ("--with-openssl", "--without-openssl"),
-        "selinux": ("--enable-selinux", "--disable-selinux"),
         "test-full": ("--enable-test-full", "--disable-test-full"),
         "vanilla": ("--enable-vanilla", "--disable-vanilla"),
     },

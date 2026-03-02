@@ -7,8 +7,6 @@ filegroup(
     srcs = [
         "//packages/linux/system/security/audit:audit",
         "//packages/linux/system/security/aide:aide",
-        "//packages/linux/system/security/lynis:lynis",
-        "//packages/linux/system/security/rkhunter:rkhunter",
     ],
     default_target_platform = "//platforms:linux-target",
 )
@@ -74,7 +72,6 @@ filegroup(
         "//packages/linux/network/firewall/nftables:nftables",
         "//packages/linux/network/firewall/nftables:nftables",
         "//packages/linux/network/firewall/nftables:nftables",
-        "//packages/linux/system/security/fail2ban:fail2ban",
     ],
     default_target_platform = "//platforms:linux-target",
 )
@@ -104,18 +101,15 @@ filegroup(
         "//packages/linux/system/security/encryption:rage",
         "//packages/linux/system/security/encryption:minisign",
         "//packages/linux/system/security/encryption:signify",
-        "//packages/linux/system/security/encryption:ccrypt",
         "//packages/linux/system/security/encryption:pass",
         "//packages/linux/system/security/encryption:tomb",
         "//packages/linux/system/security/encryption:gocryptfs",
         "//packages/linux/system/security/encryption:fscrypt",
-        "//packages/linux/system/security/encryption:ecryptfs-utils",
         "//packages/linux/system/security/encryption:sops",
         "//packages/linux/system/security/encryption:veracrypt",
         "//packages/linux/system/security/encryption:sequoia-sq",
         "//packages/linux/system/security/encryption:opensc",
         "//packages/linux/system/security/encryption:hashcat",
-        "//packages/linux/system/security/encryption:john",
         "//packages/linux/system/security/encryption:bcrypt",
         "//packages/linux/system/security/encryption:clevis",
     ],
@@ -128,19 +122,12 @@ filegroup(
     srcs = [
         "//packages/linux/system/libs/crypto/libsodium:libsodium",
         "//packages/linux/system/security/encryption:libbsd",
-        "//packages/linux/system/security/encryption:libmd",
-        "//packages/linux/system/security/encryption:linux-pam",
         "//packages/linux/system/security/encryption:keyutils",
         "//packages/linux/system/security/encryption:fuse3",
         "//packages/linux/system/security/encryption:pcsc-lite",
         "//packages/linux/system/security/encryption:libusb",
-        "//packages/linux/system/security/encryption:nettle",
         "//packages/linux/system/security/encryption:argon2",
-        "//packages/linux/system/security/encryption:libressl",
-        "//packages/linux/system/security/encryption:botan",
-        "//packages/linux/system/security/encryption:libp11",
         "//packages/linux/system/security/encryption:jose",
-        "//packages/linux/system/security/encryption:jansson",
         "//packages/linux/system/security/encryption:age-plugin-yubikey",
     ],
     default_target_platform = "//platforms:linux-target",
@@ -152,7 +139,6 @@ filegroup(
     srcs = [
         "//packages/linux/system/security/firejail:firejail",
         "//packages/linux/system/security/bubblewrap:bubblewrap",
-        "//packages/linux/system/security/apparmor:apparmor",
     ],
     default_target_platform = "//platforms:linux-target",
 )
@@ -194,33 +180,13 @@ alias(
 )
 
 alias(
-    name = "apparmor",
-    actual = "//packages/linux/system/security/apparmor:apparmor",
-)
-
-alias(
     name = "audit",
     actual = "//packages/linux/system/security/audit:audit",
 )
 
 alias(
-    name = "fail2ban",
-    actual = "//packages/linux/system/security/fail2ban:fail2ban",
-)
-
-alias(
-    name = "lynis",
-    actual = "//packages/linux/system/security/lynis:lynis",
-)
-
-alias(
     name = "bubblewrap",
     actual = "//packages/linux/system/security/bubblewrap:bubblewrap",
-)
-
-alias(
-    name = "rkhunter",
-    actual = "//packages/linux/system/security/rkhunter:rkhunter",
 )
 
 alias(
@@ -280,18 +246,8 @@ alias(
 )
 
 alias(
-    name = "ccrypt",
-    actual = "//packages/linux/system/security/encryption:ccrypt",
-)
-
-alias(
     name = "hashcat",
     actual = "//packages/linux/system/security/encryption:hashcat",
-)
-
-alias(
-    name = "john",
-    actual = "//packages/linux/system/security/encryption:john",
 )
 
 alias(
@@ -319,27 +275,7 @@ alias(
     actual = "//packages/linux/system/security/encryption:argon2",
 )
 
-alias(
-    name = "libressl",
-    actual = "//packages/linux/system/security/encryption:libressl",
-)
-
-alias(
-    name = "botan",
-    actual = "//packages/linux/system/security/encryption:botan",
-)
-
-alias(
-    name = "nettle",
-    actual = "//packages/linux/system/security/encryption:nettle",
-)
-
 # Authentication package aliases
-alias(
-    name = "linux-pam",
-    actual = "//packages/linux/system/security/encryption:linux-pam",
-)
-
 alias(
     name = "shadow",
     actual = "//packages/linux/system/apps/shadow:shadow",

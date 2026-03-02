@@ -13,12 +13,10 @@ package(
     homepage = "https://salsa.debian.org/debian/at",
     license = "GPL-2+",
     use_deps = {
-        "selinux": "//packages/linux/system/security/selinux:selinux",
         "pam": "//packages/linux/system/security/auth/pam:pam",
     },
     use_configure = {
         "pam": ("--with-pam", "--without-pam"),
-        "selinux": ("--with-selinux", "--without-selinux"),
     },
     configure_args = [
         "--prefix=/usr",

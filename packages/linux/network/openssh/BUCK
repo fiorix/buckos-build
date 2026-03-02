@@ -20,9 +20,6 @@ autoreconf -fi
 
     use_deps = {
         "ssl": "//packages/linux/system/libs/crypto/openssl:openssl",
-        "pam": "//packages/linux/core/linux-pam:linux-pam",
-        "kerberos": "//packages/linux/system/libs/auth:krb5",
-        "ldap": "//packages/linux/system/libs/directory:openldap",
         "libedit": "//packages/linux/dev-libs/misc/libedit:libedit",
     },
 
@@ -30,13 +27,10 @@ autoreconf -fi
         "abi_mips_n32": ("--enable-abi_mips_n32", "--disable-abi_mips_n32"),
         "audit": ("--enable-audit", "--disable-audit"),
         "debug": ("--enable-debug", "--disable-debug"),
-        "kerberos": ("--with-kerberos5", "--without-kerberos5"),
-        "ldap": ("--with-ldap", "--without-ldap"),
         "ldns": ("--enable-ldns", "--disable-ldns"),
         "legacy-ciphers": ("--enable-legacy-ciphers", "--disable-legacy-ciphers"),
         "libedit": ("--with-libedit", "--without-libedit"),
         "livecd": ("--enable-livecd", "--disable-livecd"),
-        "pam": ("--with-pam", "--without-pam"),
         "pie": ("--enable-pie", "--disable-pie"),
         "security-key": ("--enable-security-key", "--disable-security-key"),
         "selinux": ("--enable-selinux", "--disable-selinux"),
@@ -68,9 +62,10 @@ autoreconf -fi
 
     deps = [
         "//packages/linux/core/zlib:zlib",
-                "//packages/linux/dev-tools/build-systems/autoconf:autoconf",
-                "//packages/linux/dev-tools/build-systems/automake:automake",
-                "//packages/linux/dev-tools/build-systems/libtool:libtool"
+        "//packages/linux/system/libs/crypto/libxcrypt:libxcrypt",
+        "//packages/linux/dev-tools/build-systems/autoconf:autoconf",
+        "//packages/linux/dev-tools/build-systems/automake:automake",
+        "//packages/linux/dev-tools/build-systems/libtool:libtool",
     ],
 
     post_install_cmds = ["""

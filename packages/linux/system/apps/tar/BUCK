@@ -15,12 +15,10 @@ package(
     # TEMPORARILY DISABLED acl for aarch64 cross-compilation (Fix #26 - acl/libattr linking issue)
     use_deps = {
         "acl": "//packages/linux/system/libs/ipc/acl:acl",
-        "selinux": "//packages/linux/system/security/selinux:selinux",
     },
     use_configure = {
         "acl": ("--with-acl", "--without-acl"),
         "nls": ("--enable-nls", "--disable-nls"),
-        "selinux": ("--with-selinux", "--without-selinux"),
         "xattr": ("--with-xattrs", "--without-xattrs"),
     },
     configure_args = [

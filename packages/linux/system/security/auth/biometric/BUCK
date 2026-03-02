@@ -50,7 +50,6 @@ package(
     ],
     deps = [
         "//packages/linux/system/libs/ipc/dbus:dbus",
-        "//packages/linux/system/security/encryption:linux-pam",
         ":libfprint",
         "//packages/linux/system/security/auth/privilege:polkit",
     ],
@@ -84,23 +83,6 @@ package(
     """],
     deps = [
         "//packages/linux/system/libs/database/sqlite:sqlite",
-        ":nspr",
-    ],
-)
-
-# NSPR - Netscape Portable Runtime
-package(
-    name = "nspr",
-    build_rule = "autotools",
-    skip_configure = True,
-    url = "https://ftp.mozilla.org/pub/nspr/releases/v4.35/src/nspr-4.35.tar.gz",
-
-    sha256 = "7ea3297ea5969b5d25a5dd8d47f2443cda88e9ee746301f6e1e1426f8a6abc8f",
-    version = "4.35",
-    description = "Netscape Portable Runtime",
-    homepage = "https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSPR",
-    license = "MPL-2.0",
-    deps = [
     ],
 )
 

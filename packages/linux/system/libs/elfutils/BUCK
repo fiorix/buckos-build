@@ -19,11 +19,7 @@ package(
         "static-libs": ("--enable-static", "--disable-static"),
         "threads": ("--enable-thread-safety", "--disable-thread-safety"),
         "utils": ("--enable-utils", "--disable-utils"),
-        "valgrind": ("--enable-valgrind", "--disable-valgrind"),
         "zstd": ("--with-zstd", "--without-zstd"),
-    },
-    use_deps = {
-        "valgrind": "//packages/linux/dev-tools/profilers/valgrind:valgrind",
     },
     configure_args = [
         "--prefix=/usr",

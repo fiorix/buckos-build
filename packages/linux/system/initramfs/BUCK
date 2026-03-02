@@ -15,7 +15,6 @@ filegroup(
         "//packages/linux/system/initramfs/dracut:dracut",
         "//packages/linux/system/initramfs/mkinitcpio:mkinitcpio",
         "//packages/linux/system/initramfs/genkernel:genkernel",
-        "//packages/linux/system/initramfs/initramfs-tools:initramfs-tools",
     ],
     default_target_platform = "//platforms:linux-target",
 )
@@ -57,17 +56,6 @@ filegroup(
     name = "genkernel-stack",
     srcs = [
         "//packages/linux/system/initramfs/genkernel:genkernel",
-        "//packages/linux/system/libs/kmod:kmod",
-        "//packages/linux/system/init/eudev:eudev",
-    ],
-    default_target_platform = "//platforms:linux-target",
-)
-
-# initramfs-tools (Debian/Ubuntu default)
-filegroup(
-    name = "initramfs-tools-stack",
-    srcs = [
-        "//packages/linux/system/initramfs/initramfs-tools:initramfs-tools",
         "//packages/linux/system/libs/kmod:kmod",
         "//packages/linux/system/init/eudev:eudev",
     ],

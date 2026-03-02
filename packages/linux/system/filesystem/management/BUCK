@@ -13,7 +13,6 @@ filegroup(
         "//packages/linux/system/filesystem/management/lvm2:lvm2",
         "//packages/linux/system/filesystem/management/mdadm:mdadm",
         "//packages/linux/system/filesystem/management/cryptsetup:cryptsetup",
-        "//packages/linux/system/filesystem/management/dmraid:dmraid",
         "//packages/linux/system/filesystem/management/multipath-tools:multipath-tools",
         "//packages/linux/system/filesystem/management/hdparm:hdparm",
         "//packages/linux/system/power/nvme-cli:nvme-cli",
@@ -41,7 +40,6 @@ filegroup(
     srcs = [
         "//packages/linux/system/filesystem/management/lvm2:lvm2",
         "//packages/linux/system/filesystem/management/mdadm:mdadm",
-        "//packages/linux/system/filesystem/management/dmraid:dmraid",
         "//packages/linux/system/filesystem/management/multipath-tools:multipath-tools",
     ],
     default_target_platform = "//platforms:linux-target",

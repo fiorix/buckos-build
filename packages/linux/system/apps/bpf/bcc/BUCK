@@ -24,7 +24,6 @@ package(
         "-DPYTHON_CMD=python3",
     ],
     deps = [
-        "//packages/linux/system/libs/bpf/libbpf:libbpf",
         "//packages/linux/system/libs/elfutils:elfutils",
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/core/llvm:llvm",

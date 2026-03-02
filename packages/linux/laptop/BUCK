@@ -84,7 +84,6 @@ filegroup(
         "//packages/linux/system/libs/input/libevdev:libevdev",
         "//packages/linux/system/libs/input/libinput:libinput",
         "//packages/linux/laptop/wireless/iwd:iwd",
-        "//packages/linux/laptop/battery/upower:upower",
     ],
     default_target_platform = "//platforms:linux-target",
 )

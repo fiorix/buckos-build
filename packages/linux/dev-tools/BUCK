@@ -146,7 +146,6 @@ filegroup(
     srcs = [
         "//packages/linux/dev-tools/dev-utils/indent:indent",
         "//packages/linux/dev-tools/dev-utils/uncrustify:uncrustify",
-        "//packages/linux/dev-tools/dev-utils/astyle:astyle",
     ],
     default_target_platform = "//platforms:linux-target",
 )

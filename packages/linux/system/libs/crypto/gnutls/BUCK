@@ -15,11 +15,9 @@ package(
         "dane": ("--enable-dane", "--disable-dane"),
         "doc": ("--enable-doc", "--disable-doc"),
         "examples": ("--enable-examples", "--disable-examples"),
-        "guile": ("--enable-guile", "--disable-guile"),
         "idn": ("--enable-idn", "--disable-idn"),
         "nls": ("--enable-nls", "--disable-nls"),
         "openssl": ("--with-openssl", "--without-openssl"),
-        "p11": ("--with-p11-kit", "--without-p11-kit"),
         "pkcs11": ("--enable-pkcs11", "--disable-pkcs11"),
         "sslv2": ("--enable-sslv2", "--disable-sslv2"),
         "sslv3": ("--enable-sslv3", "--disable-sslv3"),
@@ -31,8 +29,6 @@ package(
         "zstd": ("--with-zstd", "--without-zstd"),
     },
     use_deps = {
-        "p11": "//packages/linux/dev-libs/p11-kit:p11-kit",
-        "guile": "//packages/linux/lang/guile:guile",
         "zlib": "//packages/linux/core/zlib:zlib",
         "zstd": "//packages/linux/system/libs/compression/zstd:zstd",
     },
@@ -40,6 +36,7 @@ package(
         "--with-included-libtasn1",
         "--with-included-unistring",
         "--without-brotli",
+        "--without-p11-kit",
     ],
     # brotli dlwrap files unconditionally reference brotli types even when
     # --without-brotli is set; stub them out so they compile to nothing

@@ -211,8 +211,6 @@ package(
     ],
     deps = [
         "//packages/linux/system/libs/crypto/openssl:openssl",
-        "//packages/linux/system/security/encryption:linux-pam",
-        "//packages/linux/system/libs/database/lmdb:lmdb",
     ],
 )
 
@@ -246,7 +244,6 @@ package(
     ],
     deps = [
         "//packages/linux/system/libs/ipc/dbus:dbus",
-        "//packages/linux/system/security/encryption:linux-pam",
         ":krb5",
         ":openldap",
         ":cyrus-sasl",
@@ -359,6 +356,5 @@ package(
     ],
     deps = [
         ":openldap",
-        "//packages/linux/system/security/encryption:linux-pam",
     ],
 )

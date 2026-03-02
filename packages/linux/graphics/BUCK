@@ -127,7 +127,6 @@ filegroup(
         "//packages/linux/graphics/utilities/graphicsmagick:graphicsmagick",
         "//packages/linux/graphics/utilities/gpick:gpick",
         "//packages/linux/graphics/utilities/dia:dia",
-        "//packages/linux/graphics/utilities/babl:babl",
         "//packages/linux/graphics/utilities/gegl:gegl",
         "//packages/linux/graphics/utilities/libmypaint:libmypaint",
         "//packages/linux/graphics/utilities/slop:slop",

@@ -60,7 +60,6 @@ DESKTOP
     deps = [
         "//packages/linux/dev-libs/glib:glib",
         "//packages/linux/system/security/auth/biometric:nss",
-        "//packages/linux/system/security/auth/biometric:nspr",
         "//packages/linux/audio/daemons/pulseaudio:pulseaudio",
     ],
 )

@@ -19,11 +19,9 @@ package(
     use_configure = {
         "doc": ("--enable-manpages", "--disable-manpages"),
         "kmod": ("--enable-kmod", "--disable-kmod"),
-        "selinux": ("--enable-selinux", "--disable-selinux"),
     },
     use_deps = {
         "kmod": "//packages/linux/system/libs/kmod:kmod",
-        "selinux": "//packages/linux/system/security/selinux:selinux",
     },
     configure_args = [
         "--prefix=/usr",

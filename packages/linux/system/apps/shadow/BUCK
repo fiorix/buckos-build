@@ -14,7 +14,6 @@ package(
     license = "BSD",
     use_deps = {
         "pam": "//packages/linux/system/security/auth/pam:pam",
-        "selinux": "//packages/linux/system/security/selinux:selinux",
         "audit": "//packages/linux/system/security/audit:audit",
         "acl": "//packages/linux/system/libs/ipc/acl:acl",
         "attr": "//packages/linux/system/libs/ipc/attr:attr",
@@ -27,7 +26,6 @@ package(
         "nls": ("--enable-nls", "--disable-nls"),
         "nscd": ("--with-nscd", "--without-nscd"),
         "pam": ("--with-libpam", "--without-libpam"),
-        "selinux": ("--with-selinux", "--without-selinux"),
         "skey": ("--enable-skey", "--disable-skey"),
         "su": ("--enable-su", "--disable-su"),
         "systemd": ("--enable-systemd", "--disable-systemd"),

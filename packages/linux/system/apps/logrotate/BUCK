@@ -13,13 +13,11 @@ package(
     homepage = "https://github.com/logrotate/logrotate",
     license = "GPL-2+",
     use_deps = {
-        "selinux": "//packages/linux/system/security/selinux:selinux",
         "acl": "//packages/linux/system/libs/ipc/acl:acl",
     },
     use_configure = {
         "acl": ("--with-acl", "--without-acl"),
         "cron": ("--enable-cron", "--disable-cron"),
-        "selinux": ("--with-selinux", "--without-selinux"),
     },
     configure_args = [
         "--prefix=/usr",

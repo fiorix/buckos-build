@@ -235,7 +235,6 @@ filegroup(
     name = "database-libs",
     srcs = [
         "//packages/linux/system/libs/database/sqlite:sqlite",
-        "//packages/linux/system/libs/database/lmdb:lmdb",
     ],
     default_target_platform = "//platforms:linux-target",
 )

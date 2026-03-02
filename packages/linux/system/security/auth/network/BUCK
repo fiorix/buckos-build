@@ -24,7 +24,6 @@ package(
         cp pam_radius_auth.conf "$OUT/etc/raddb/"
     """],
     deps = [
-        "//packages/linux/system/security/encryption:linux-pam",
     ],
 )
 
@@ -44,6 +43,5 @@ package(
         "--with-pam-module-dir=/lib/security",
     ],
     deps = [
-        "//packages/linux/system/security/encryption:linux-pam",
     ],
 )

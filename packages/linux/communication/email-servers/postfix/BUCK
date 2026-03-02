@@ -24,6 +24,5 @@ true
     # Install using postfix's custom install target
     deps = [
         "//packages/linux/system/libs/crypto/openssl:openssl",
-        "//packages/linux/system/libs/database/lmdb:lmdb",
     ],
 )

@@ -12,12 +12,8 @@ package(
     description = "List open files utility",
     homepage = "https://github.com/lsof-org/lsof",
     license = "lsof",
-    use_deps = {
-        "selinux": "//packages/linux/system/security/selinux:selinux",
-    },
     use_configure = {
         "rpc": ("--enable-rpc", "--disable-rpc"),
-        "selinux": ("--with-selinux", "--without-selinux"),
     },
     configure_args = [
         "--prefix=/usr",

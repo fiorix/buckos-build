@@ -25,6 +25,5 @@ package(
     deps = [
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/libs/elfutils:elfutils",
-        "//packages/linux/system/libs/bpf/libbpf:libbpf",
     ],
 )

@@ -6,7 +6,6 @@ filegroup(
     name = "wifi-tools",
     srcs = [
         "//packages/linux/network/wireless/wpa-supplicant:wpa-supplicant",
-        "//packages/linux/network/wireless/hostapd:hostapd",
         "//packages/linux/network/wireless/iw:iw",
         "//packages/linux/network/wireless/wireless-tools:wireless-tools",
         "//packages/linux/network/wireless/wireless-regdb:wireless-regdb",

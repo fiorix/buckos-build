@@ -20,7 +20,6 @@
 filegroup(
     name = "core-auth",
     srcs = [
-        "//packages/linux/system/security/encryption:linux-pam",
         "//packages/linux/system/apps/shadow:shadow",
         "//packages/linux/system/apps/sudo:sudo",
         "//packages/linux/system/apps/doas:doas",
@@ -152,7 +151,6 @@ filegroup(
 filegroup(
     name = "essential",
     srcs = [
-        "//packages/linux/system/security/encryption:linux-pam",
         "//packages/linux/system/apps/shadow:shadow",
         "//packages/linux/system/apps/sudo:sudo",
         "//packages/linux/system/security/auth/password:libpwquality",

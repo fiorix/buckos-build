@@ -22,7 +22,6 @@ package(
     ],
     deps = [
         "//packages/linux/system/apps/bpf/bcc:bcc",
-        "//packages/linux/system/libs/bpf/libbpf:libbpf",
         "//packages/linux/system/libs/elfutils:elfutils",
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/core/llvm:llvm",

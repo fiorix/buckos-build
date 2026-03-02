@@ -2,9 +2,7 @@
 
 filegroup(
     name = "power-abstraction",
-    srcs = [
-        "//packages/linux/laptop/battery/upower:upower",
-    ],
+    srcs = [],
     default_target_platform = "//platforms:linux-target",
 )
 
@@ -27,9 +25,7 @@ filegroup(
 
 filegroup(
     name = "battery-essential",
-    srcs = [
-        "//packages/linux/laptop/battery/upower:upower",
-    ],
+    srcs = [],
     default_target_platform = "//platforms:linux-target",
 )
 
@@ -45,7 +41,6 @@ filegroup(
 filegroup(
     name = "all-battery",
     srcs = [
-        "//packages/linux/laptop/battery/upower:upower",
         "//packages/linux/laptop/battery/acpi_call:acpi_call",
         "//packages/linux/laptop/battery/tp_smapi:tp_smapi",
         "//packages/linux/laptop/battery/laptop-mode-tools:laptop-mode-tools",

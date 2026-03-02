@@ -15,13 +15,11 @@ package(
     license = "ISC",
     use_deps = {
         "pam": "//packages/linux/system/security/auth/pam:pam",
-        "selinux": "//packages/linux/system/security/selinux:selinux",
     },
     use_configure = {
         "anacron": ("--enable-anacron", "--disable-anacron"),
         "inotify": ("--with-inotify", "--without-inotify"),
         "pam": ("--with-pam", "--disable-pam"),
-        "selinux": ("--with-selinux", "--without-selinux"),
     },
     configure_args = [
         "--prefix=/usr",

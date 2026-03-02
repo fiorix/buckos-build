@@ -13,7 +13,6 @@ package(
     use_configure = {
         "X": ("-Dx11=enabled -Dx11-xfixes=enabled", "-Dx11=disabled -Dx11-xfixes=disabled"),
         "alsa": ("-Dalsa=enabled -Dpipewire-alsa=enabled", "-Dalsa=disabled -Dpipewire-alsa=disabled"),
-        "bluetooth": ("-Dbluez5=enabled -Dbluez5-codec-aac=enabled -Dbluez5-codec-aptx=enabled -Dbluez5-codec-ldac=enabled", "-Dbluez5=disabled -Dbluez5-codec-aac=disabled -Dbluez5-codec-aptx=disabled -Dbluez5-codec-ldac=disabled"),
         "doc": ("-Ddocs=enabled -Dman=enabled", "-Ddocs=disabled -Dman=disabled"),
         "examples": ("-Dexamples=enabled", "-Dexamples=disabled"),
         "ffmpeg": ("-Dffmpeg=enabled", "-Dffmpeg=disabled"),
@@ -28,7 +27,6 @@ package(
     },
     use_deps = {
         "alsa": "//packages/linux/system/libs/audio/alsa-lib:alsa-lib",
-        "bluetooth": "//packages/linux/system/bluetooth/bluez:bluez",
         "gstreamer": "//packages/linux/graphics/video/gstreamer:gstreamer",
         "ffmpeg": "//packages/linux/media/video/ffmpeg:ffmpeg",
         "systemd": [

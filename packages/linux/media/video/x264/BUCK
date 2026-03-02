@@ -15,7 +15,6 @@ package(
     deps = [],
     # nasm is needed when asm is enabled (x86/x86_64 optimizations)
     use_deps = {
-        "opencl": "//packages/linux/dev-libs/opencl:opencl",
         "lavf": "//packages/linux/media/video/ffmpeg:ffmpeg",
     },
     configure_args = [
@@ -33,7 +32,6 @@ package(
         "interlaced": ("--enable-interlaced", "--disable-interlaced"),
         "lavf": ("--enable-lavf", "--disable-lavf"),
         "lsmash": ("--enable-lsmash", "--disable-lsmash"),
-        "opencl": ("--enable-opencl", "--disable-opencl"),
         "shared": ("--enable-shared", "--disable-shared"),
         "static": ("--enable-static", "--disable-static"),
         "threads": ("--enable-threads", "--disable-threads"),

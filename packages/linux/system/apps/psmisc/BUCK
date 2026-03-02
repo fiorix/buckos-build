@@ -15,15 +15,11 @@ package(
     pre_configure_cmds = [
         "autoreconf -fiv",
     ],
-    use_deps = {
-        "selinux": "//packages/linux/system/security/selinux:selinux",
-    },
     use_configure = {
         "X": ("--with-x", "--without-x"),
         "apparmor": ("--enable-apparmor", "--disable-apparmor"),
         "ipv6": ("--enable-ipv6", "--disable-ipv6"),
         "nls": ("--enable-nls", "--disable-nls"),
-        "selinux": ("--enable-selinux", "--disable-selinux"),
     },
     # Stub po/Makefile to avoid broken NLS build when --disable-nls
     pre_build_cmds = [

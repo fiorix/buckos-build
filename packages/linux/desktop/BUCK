@@ -26,7 +26,6 @@ filegroup(
 filegroup(
     name = "display-managers",
     srcs = [
-        "//packages/linux/desktop/gdm:gdm",
         "//packages/linux/desktop/sddm:sddm",
         "//packages/linux/desktop/lightdm:lightdm",
     ],
