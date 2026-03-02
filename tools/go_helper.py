@@ -154,6 +154,12 @@ def main():
             env["LD_LIBRARY_PATH"] = ":".join(_dep_lib_dirs) + (":" + _existing if _existing else "")
     env["GOFLAGS"] = env.get("GOFLAGS", "")
 
+    # Ensure writable GOPATH/GOMODCACHE (defaults may point to read-only locations)
+    _gopath = os.path.join(os.path.dirname(os.path.abspath(args.output_dir)), ".gopath")
+    os.makedirs(_gopath, exist_ok=True)
+    env.setdefault("GOPATH", _gopath)
+    env.setdefault("GOMODCACHE", os.path.join(_gopath, "pkg", "mod"))
+
     # Set up vendored dependencies if provided
     if args.vendor_dir:
         vendor_dir = os.path.abspath(args.vendor_dir)

@@ -27,6 +27,12 @@ def _go_build(ctx, source):
     for arg in toolchain_path_args(ctx):
         cmd.add(arg)
 
+    # Add Go SDK to PATH and set GOROOT
+    go_sdk = ctx.attrs._go_sdk
+    go_prefix = go_sdk[PackageInfo].prefix if PackageInfo in go_sdk else go_sdk[DefaultInfo].default_outputs[0]
+    cmd.add("--path-prepend", cmd_args(go_prefix, format = "{}/usr/bin"))
+    cmd.add("--env", cmd_args(go_prefix, format = "GOROOT={}/usr/lib/go"))
+
     # Add host_deps bin dirs to PATH
     for arg in host_tool_path_args(ctx):
         cmd.add(arg)
@@ -109,6 +115,9 @@ go_package = rule(
         "vendor_deps": attrs.option(attrs.dep(), default = None),
         "_go_tool": attrs.default_only(
             attrs.exec_dep(default = "//tools:go_helper"),
+        ),
+        "_go_sdk": attrs.default_only(
+            attrs.exec_dep(default = "toolchains//bootstrap/go:go-native"),
         ),
     },
 )
