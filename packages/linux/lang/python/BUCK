@@ -120,9 +120,12 @@ package(
 
     # Fix lib-dynload path: C extensions install to lib64/ on x86_64
     # but Python looks in lib/python3.12/lib-dynload/.
+    # Also create 'python' symlink so AM_PATH_PYTHON finds us before
+    # the host python (configure probes for 'python' before 'python3').
     post_install_cmds = ["""
         if [ -d "$DESTDIR/usr/lib64/python3.12/lib-dynload" ] && [ ! -e "$DESTDIR/usr/lib/python3.12/lib-dynload" ]; then
             ln -sf ../../lib64/python3.12/lib-dynload "$DESTDIR/usr/lib/python3.12/lib-dynload"
         fi
+        ln -sf python3 "$DESTDIR/usr/bin/python"
     """],
 )

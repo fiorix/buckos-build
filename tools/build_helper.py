@@ -713,6 +713,11 @@ def main():
     _host_python = shutil.which("python3") if _dep_python3 else None
     if _dep_python3 and _host_python:
         _dep_python3_abs = os.path.abspath(_dep_python3)
+        # Skip replacement if host python is a substring of dep python —
+        # str.replace would corrupt the already-correct dep path by
+        # matching "/usr/bin/python3" inside ".../installed/usr/bin/python3".
+        _skip_host_replace = (_host_python != _dep_python3_abs and
+                              _host_python in _dep_python3_abs)
         _all_ninja_files = _glob.glob(
             os.path.join(output_dir, "**/build.ninja"), recursive=True,
         )
@@ -734,8 +739,9 @@ def main():
                 with open(_nf, "r") as f:
                     _nf_content = f.read()
                 _nf_orig = _nf_content
-                # Replace host python references
-                if _host_python in _nf_content:
+                # Replace host python references (skip if it would corrupt
+                # an already-correct dep python path via substring match)
+                if not _skip_host_replace and _host_python in _nf_content:
                     _nf_content = _nf_content.replace(_host_python, _dep_python3_abs)
                 # Replace pyvenv python/meson references
                 for _old, _new in _pyvenv_replacements.items():

@@ -46,7 +46,7 @@ def _src_prepare(ctx, source):
     return output
 
 def _src_configure(ctx, source, cflags_file = None, ldflags_file = None,
-                   pkg_config_file = None, path_file = None):
+                   pkg_config_file = None, path_file = None, lib_dirs_file = None):
     """Run ./configure with toolchain env and dep flags.
 
     When skip_configure is True, only copies the source tree without
@@ -128,6 +128,7 @@ def _src_configure(ctx, source, cflags_file = None, ldflags_file = None,
         add_flag_file(cmd, "--ldflags-file", ldflags_file)
         add_flag_file(cmd, "--pkg-config-file", pkg_config_file)
         add_flag_file(cmd, "--path-file", path_file)
+        add_flag_file(cmd, "--lib-dirs-file", lib_dirs_file)
 
     ctx.actions.run(cmd, category = "autotools_configure", identifier = ctx.attrs.name, allow_cache_upload = True)
     return output
@@ -274,7 +275,7 @@ def _autotools_package_impl(ctx):
 
     # Phase 3: src_configure
     configured = _src_configure(ctx, prepared, cflags_file, ldflags_file,
-                                pkg_config_file, path_file)
+                                pkg_config_file, path_file, lib_dirs_file)
 
     # Phase 4: src_compile
     built = _src_compile(ctx, configured, cflags_file, ldflags_file,

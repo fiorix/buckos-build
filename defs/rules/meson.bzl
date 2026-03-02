@@ -26,7 +26,7 @@ load("//defs:host_tools.bzl", "host_tool_path_args")
 # ── Phase helpers ─────────────────────────────────────────────────────
 
 def _meson_setup(ctx, source, cflags_file = None, ldflags_file = None,
-                 pkg_config_file = None, path_file = None):
+                 pkg_config_file = None, path_file = None, lib_dirs_file = None):
     """Run meson setup with toolchain env and dep flags.
 
     Dep flags are propagated via tset projection files — the meson_helper
@@ -83,6 +83,7 @@ def _meson_setup(ctx, source, cflags_file = None, ldflags_file = None,
     add_flag_file(cmd, "--ldflags-file", ldflags_file)
     add_flag_file(cmd, "--pkg-config-file", pkg_config_file)
     add_flag_file(cmd, "--path-file", path_file)
+    add_flag_file(cmd, "--lib-dirs-file", lib_dirs_file)
 
     # Add host_deps bin dirs to PATH
     for arg in host_tool_path_args(ctx):
@@ -197,7 +198,7 @@ def _meson_package_impl(ctx):
 
     # Phase 3: meson_setup
     configured = _meson_setup(ctx, prepared, cflags_file, ldflags_file,
-                              pkg_config_file, path_file)
+                              pkg_config_file, path_file, lib_dirs_file)
 
     # Phase 4: src_compile (source passed as hidden input for out-of-tree builds)
     built = _src_compile(ctx, configured, prepared, path_file, lib_dirs_file)
