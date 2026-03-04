@@ -125,13 +125,15 @@ def main():
         print(f"error: source directory not found: {args.source_dir}", file=sys.stderr)
         sys.exit(1)
 
-    os.makedirs(args.build_dir, exist_ok=True)
-    register_cleanup(os.path.abspath(args.build_dir))
+    _build_dir_abs = os.path.abspath(args.build_dir)
+    os.makedirs(_build_dir_abs, exist_ok=True)
+    register_cleanup(_build_dir_abs)
 
     # Create a pkg-config wrapper that always passes --define-prefix so
     # .pc files in Buck2 dep directories resolve paths correctly.
     # Write into build_dir so the path is stable across meson reconfigures.
-    wrapper_dir = write_pkg_config_wrapper(os.path.join(args.build_dir, ".pkgconf-wrapper"))
+    # Use absolute path so meson native file embeds an executable path, not a name.
+    wrapper_dir = write_pkg_config_wrapper(os.path.join(_build_dir_abs, ".pkgconf-wrapper"))
 
     env = clean_env()
 
@@ -246,7 +248,7 @@ def main():
     if _dep_python3:
         _native_lines.append(f"python3 = '{_dep_python3}'")
         _native_lines.append(f"python = '{_dep_python3}'")
-    _native_file = os.path.join(args.build_dir, "buckos-native.ini")
+    _native_file = os.path.join(_build_dir_abs, "buckos-native.ini")
     with open(_native_file, "w") as _nf:
         _nf.write("\n".join(_native_lines) + "\n")
 
@@ -261,7 +263,7 @@ def main():
 
     cmd = ["meson", "setup"]
     cmd.extend([
-        os.path.abspath(args.build_dir),
+        _build_dir_abs,
         source_abs,
         f"--prefix={args.prefix}",
         f"--native-file={_native_file}",
