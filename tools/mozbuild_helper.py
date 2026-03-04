@@ -92,13 +92,25 @@ def _build_dep_env(dep_base_dirs, pkg_config_path, base_path=None):
     if all_pc:
         env["PKG_CONFIG_PATH"] = ":".join(all_pc)
 
-    if bin_paths:
+    # Only prepend dep bin dirs that don't shadow the host python interpreter.
+    # Buckos python3 is a transitive dep of many packages (glib → packaging →
+    # python), but Firefox's mach must run with the host python3 (which has all
+    # the required C extensions like _curses, ssl, etc.).  Bin dirs that
+    # contain a python3 binary are excluded from PATH prepending; they remain
+    # available via LIBRARY_PATH for the linker.
+    non_python_bin_paths = [
+        p for p in bin_paths
+        if not os.path.isfile(os.path.join(p, "python3"))
+    ]
+    if non_python_bin_paths:
         if base_path is None:
             base_path = ""
-        env["PATH"] = ":".join(bin_paths) + ":" + base_path
+        env["PATH"] = ":".join(non_python_bin_paths) + ":" + base_path
+    elif base_path is not None:
+        env["PATH"] = base_path
 
-    # LIBRARY_PATH for the linker (NOT LD_LIBRARY_PATH — that poisons
-    # system Python's shared libs like pyexpat against our older expat)
+    # LIBRARY_PATH for the linker (NOT LD_LIBRARY_PATH — that would cause
+    # buckos shared libs to shadow system libs for host tools)
     if lib_paths:
         env["LIBRARY_PATH"] = ":".join(lib_paths)
 
