@@ -51,7 +51,7 @@ meson setup build \
     --buildtype=release \
     -Ddocumentation=false \
     -Dtests=false \
-    -Ddtd_validation=false \
+    -Ddtd_validation=disabled \
     -Dlibraries=false \
     -Dscanner=true
 
@@ -157,7 +157,7 @@ package(
         "-Ddocumentation=false",
         "-Dtests=false",
         # Disable DTD validation - this removes the libxml2 dependency from wayland-scanner
-        "-Ddtd_validation=false",
+        "-Ddtd_validation=disabled",
         # Build scanner to install wayland-scanner.pc and protocol files
         # The actual scanner binary will be from native wayland-scanner via meson native file
         "-Dscanner=true",
