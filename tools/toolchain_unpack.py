@@ -180,58 +180,71 @@ def _rewrite_interpreters(toolchain_dir):
         print(f"  patched ELF interpreter in {patched} binaries", file=sys.stderr)
 
 
-def _install_cross_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
-    """Install GCC specs so cross-compiled programs run on the build host.
+def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
+    """Install GCC specs so compiled programs use the bundled ld-linux.
 
-    The cross-compiler produces buckos binaries linked against the
-    sysroot's glibc (2.42).  On hosts with older glibc, these binaries
-    segfault because the default ELF interpreter (/lib64/ld-linux-x86-64.so.2)
-    loads the host's incompatible libc.
+    Both the cross-compiler (tools/bin/<triple>-gcc) and host-tools GCC
+    (host-tools/bin/gcc) produce binaries that default to using the host's
+    /lib64/ld-linux-x86-64.so.2.  On hosts with older glibc, mixing the
+    host ld-linux with buckos-linked CRT objects causes segfaults.
 
-    Write a minimal specs override that appends --dynamic-linker with the
-    sysroot's ld-linux path to the built-in link spec.  The linker uses
-    the last --dynamic-linker it sees, so our append overrides the default.
+    Write a minimal specs override that appends --dynamic-linker pointing
+    to the bundled ld-linux.  The leading '+' tells GCC to append to the
+    built-in link spec.  ld uses the last --dynamic-linker, so our append
+    overrides the default.
+
     Combined with LD_LIBRARY_PATH (set by the build helpers to include
-    host-tools/lib64), cross-compiled test programs and HOSTCC output
-    find the matching buckos ld-linux + libc at runtime.
+    host-tools/lib64), all compiled programs find the matching buckos
+    ld-linux + libc at runtime.
     """
-    sysroot = os.path.join(toolchain_dir, "tools", target_triple, "sys-root")
-    sysroot_ld = os.path.join(sysroot, "lib64", "ld-linux-x86-64.so.2")
+    installed = 0
 
-    if not os.path.exists(sysroot_ld):
-        return
-
-    sysroot_ld_abs = os.path.abspath(sysroot_ld)
-
-    # Find GCC's lib directory by globbing the known layout
-    pattern = os.path.join(
-        toolchain_dir, "tools", "lib", "gcc", target_triple, "*",
+    # Cross-compiler: tools/lib/gcc/<triple>/<ver>/specs
+    # Uses sysroot ld-linux as dynamic linker.
+    sysroot_ld = os.path.join(
+        toolchain_dir, "tools", target_triple, "sys-root",
+        "lib64", "ld-linux-x86-64.so.2",
     )
-    candidates = sorted(_glob.glob(pattern))
-    if not candidates:
-        print("  warning: could not find GCC lib directory for specs",
+    if os.path.exists(sysroot_ld):
+        sysroot_ld_abs = os.path.abspath(sysroot_ld)
+        pattern = os.path.join(
+            toolchain_dir, "tools", "lib", "gcc", target_triple, "*",
+        )
+        for gcc_libdir in sorted(_glob.glob(pattern)):
+            _write_specs(gcc_libdir, sysroot_ld_abs)
+            installed += 1
+
+    # Host-tools GCC: host-tools/lib64/gcc/<triple>/<ver>/specs
+    # Uses host-tools ld-linux as dynamic linker.
+    host_ld = os.path.join(
+        toolchain_dir, "host-tools", "lib64", "ld-linux-x86-64.so.2",
+    )
+    if os.path.exists(host_ld):
+        host_ld_abs = os.path.abspath(host_ld)
+        # Host-tools GCC may use a different triple (e.g. x86_64-pc-linux-gnu)
+        pattern = os.path.join(
+            toolchain_dir, "host-tools", "lib64", "gcc", "*", "*",
+        )
+        for gcc_libdir in sorted(_glob.glob(pattern)):
+            if os.path.isdir(gcc_libdir):
+                _write_specs(gcc_libdir, host_ld_abs)
+                installed += 1
+
+    if installed:
+        print(f"  installed specs in {installed} GCC directories",
               file=sys.stderr)
-        return
 
-    gcc_libdir = candidates[-1]
 
-    # Write a minimal specs override.  The leading '+' tells GCC to
-    # append to the built-in link spec rather than replacing it.  The
-    # appended --dynamic-linker overrides the default because ld uses
-    # the last value.  The conditional %{!shared:...} avoids passing
-    # --dynamic-linker to shared library links.
+def _write_specs(gcc_libdir, ld_linux_abs):
+    """Write a specs override into a GCC lib directory."""
     specs_content = (
         "*link:\n"
-        f"+ %{{!shared:%{{!static:--dynamic-linker {sysroot_ld_abs}}}}}\n"
+        f"+ %{{!shared:%{{!static:--dynamic-linker {ld_linux_abs}}}}}\n"
         "\n"
     )
-
     specs_path = os.path.join(gcc_libdir, "specs")
     with open(specs_path, "w") as f:
         f.write(specs_content)
-
-    print(f"  installed cross-compiler specs with sysroot dynamic linker",
-          file=sys.stderr)
 
 
 def main():
@@ -323,7 +336,7 @@ def main():
 
     # Install GCC specs so cross-compiled programs use the sysroot's
     # ld-linux instead of the host's (avoids glibc version mismatch).
-    _install_cross_specs(output)
+    _install_gcc_specs(output)
 
     # Read metadata
     meta_path = os.path.join(output, "metadata.json")
