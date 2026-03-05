@@ -109,7 +109,13 @@ jobs:
           chmod +x "$HOME/.local/bin/buck2"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Configure seed
-        run: printf '[buckos]\nseed_path = seed-toolchain.tar.zst\n' >> .buckconfig.local
+        run: |
+          printf '[buckos]\nseed_path = seed-toolchain.tar.zst\n' >> .buckconfig.local
+          tmpdir=$(mktemp -d)
+          buck2 init "$tmpdir"
+          printf '\n[cells]\n' >> .buckconfig.local
+          grep 'none = none' "$tmpdir/.buckconfig" >> .buckconfig.local
+          sed -n '/^\[cell_aliases\]/,/^[[:space:]]*$/p' "$tmpdir/.buckconfig" >> .buckconfig.local
       - name: Tests
         run: |
           buck2 test //tests:
