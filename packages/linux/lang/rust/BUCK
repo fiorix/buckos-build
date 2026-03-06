@@ -132,6 +132,11 @@ rpath = false
 # components get padded interp + RPATH at link time.
 cc = "$WORKDIR/cc-wrappers/buckos-cc"
 cxx = "$WORKDIR/cc-wrappers/buckos-cxx"
+# Force Rust to use our GCC for linking Rust binaries (rustc, cargo,
+# clippy, etc.) instead of LLD.  Without this, Rust uses cc crate's
+# linker detection which may pick LLD — LLD doesn't read GCC specs,
+# so binaries would miss padded interp + RPATH placeholder.
+linker = "$WORKDIR/cc-wrappers/buckos-cc"
 EOF
 
 # Export CC/CXX to the wrapper scripts so the Rust cc crate (used by
@@ -148,5 +153,117 @@ DESTDIR="$OUT" python3 x.py install
 mkdir -p "$OUT/usr/bin"
 echo "Rust 1.91.0 installed"
 echo "Version: $($OUT/usr/bin/rustc --version 2>/dev/null || echo 'installed')"
+
+# Patch interp in any LLVM LLD tools that were linked by LLD internally
+# (not by our GCC), so they have the padded interp for unpack rewriting.
+python3 - "$OUT" << 'PYEOF'
+import struct, os, sys, glob
+out = sys.argv[1]
+target_size = 256
+suffix = b"lib64/ld-linux-x86-64.so.2"
+n_slashes = target_size - 1 - len(suffix)
+new_interp = b"/" * n_slashes + suffix + b"\x00"
+STANDARD = [b"/lib64/ld-linux-x86-64.so.2", b"/usr/lib64/ld-linux-x86-64.so.2"]
+patched = 0
+for root, _, files in os.walk(out):
+    for name in files:
+        path = os.path.join(root, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                data = bytearray(f.read())
+        except (PermissionError, OSError):
+            continue
+        if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+            continue
+        e_phoff = struct.unpack_from("<Q", data, 32)[0]
+        e_phentsize = struct.unpack_from("<H", data, 54)[0]
+        e_phnum = struct.unpack_from("<H", data, 56)[0]
+        for i in range(e_phnum):
+            off = e_phoff + i * e_phentsize
+            if struct.unpack_from("<I", data, off)[0] != 3:
+                continue
+            p_offset = struct.unpack_from("<Q", data, off + 8)[0]
+            p_filesz = struct.unpack_from("<Q", data, off + 32)[0]
+            end = data.find(0, p_offset)
+            if end < 0:
+                break
+            old_interp = data[p_offset:end]
+            if old_interp not in STANDARD:
+                break
+            if len(new_interp) <= p_filesz:
+                data[p_offset:p_offset + len(new_interp)] = new_interp
+                for j in range(len(new_interp), p_filesz):
+                    data[p_offset + j] = 0
+            else:
+                new_off = len(data)
+                data.extend(new_interp)
+                struct.pack_into("<Q", data, off + 8, new_off)
+                struct.pack_into("<Q", data, off + 32, len(new_interp))
+                struct.pack_into("<Q", data, off + 40, len(new_interp))
+            os.chmod(path, 0o755)
+            with open(path, "wb") as f:
+                f.write(data)
+            patched += 1
+            break
+print(f"Patched interp in {patched} binaries")
+
+# Also inject RPATH placeholder into binaries that lack one (LLD tools
+# linked by LLVM's build, not by our GCC).  Uses the same placeholder
+# that _rewrite_rpath expects.
+DT_RPATH, DT_RUNPATH, DT_NEEDED = 15, 29, 1
+SHT_DYNAMIC = 6
+placeholder = b"/buckos-rpath-pad" + b"X" * 228
+injected = 0
+for root, _, files in os.walk(out):
+    for name in files:
+        path = os.path.join(root, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except (PermissionError, OSError):
+            continue
+        if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+            continue
+        e_shoff = struct.unpack_from("<Q", data, 40)[0]
+        e_shentsize = struct.unpack_from("<H", data, 58)[0]
+        e_shnum = struct.unpack_from("<H", data, 60)[0]
+        dyn_offset = dyn_size = dyn_entsize = 0
+        for j in range(e_shnum):
+            sh_off = e_shoff + j * e_shentsize
+            if struct.unpack_from("<I", data, sh_off + 4)[0] == SHT_DYNAMIC:
+                dyn_offset = struct.unpack_from("<Q", data, sh_off + 24)[0]
+                dyn_size = struct.unpack_from("<Q", data, sh_off + 32)[0]
+                dyn_entsize = struct.unpack_from("<Q", data, sh_off + 56)[0]
+                break
+        if not dyn_offset:
+            continue
+        if not dyn_entsize:
+            dyn_entsize = 16
+        has_rpath = has_needed = False
+        for j in range(dyn_size // dyn_entsize):
+            tag = struct.unpack_from("<q", data, dyn_offset + j * dyn_entsize)[0]
+            if tag in (DT_RPATH, DT_RUNPATH):
+                has_rpath = True
+            if tag == DT_NEEDED:
+                has_needed = True
+        if has_rpath or not has_needed:
+            continue
+        # Use patchelf if available, otherwise skip
+        import subprocess
+        try:
+            subprocess.run(
+                ["patchelf", "--set-rpath", placeholder.decode(), path],
+                capture_output=True, timeout=30,
+            )
+            injected += 1
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+if injected:
+    print(f"Injected RPATH placeholder into {injected} binaries")
+PYEOF
 """,
 )

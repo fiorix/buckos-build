@@ -265,27 +265,12 @@ def main():
             # - testdata/: Go stdlib ships upstream ELF test fixtures
             # - libc.so.6: glibc itself has .interp for ldd(1) but is
             #   not a regular executable
-            # - glibc utils: copied from cross-glibc (stage 1), have
-            #   standard /usr/lib64/ld-linux path which the unpack step
-            #   rewrites.  Rebuilding glibc at the package level is
-            #   blocked by LD_LIBRARY_PATH poisoning the cross-compiler.
-            _GLIBC_UTILS = {
-                "ldconfig", "ldd", "getent", "getconf", "iconv",
-                "locale", "localedef", "gencat", "mtrace", "pcprofiledump",
-                "pldd", "sprof", "sotruss", "tzselect", "zdump", "zic",
-                "catchsegv", "xtrace", "sln", "iconvconfig", "nscd",
-                "makedb", "ld-linux-x86-64.so.2",
-            }
+            # - share/qemu/: non-x86_64 firmware images (hppa, s390x)
             unpadded = []
             no_rpath = []
             for elf in ht_elfs:
                 rel = os.path.relpath(elf, ht_dir)
                 if "/testdata/" in rel:
-                    continue
-                if os.path.basename(rel) in _GLIBC_UTILS:
-                    continue
-                # glibc getconf helpers (libexec/getconf/*)
-                if "libexec/getconf/" in rel:
                     continue
                 if os.path.basename(rel) == "libc.so.6":
                     continue
