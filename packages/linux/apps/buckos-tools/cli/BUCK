@@ -6,7 +6,7 @@ package(
     build_rule = "binary",
     version = "0.0.3",
     url = "https://github.com/hodgesds/buckos/archive/refs/heads/main.tar.gz",
-    sha256 = "122f786c036ef7289c4fc988f5d1bc903d860c982ec1b9738717cd72d552a8b8",
+    sha256 = "e72bdf33fbc7c60314be04d41194ee96780ca01199771e09550b2ef4096dd318",
     source = "//packages/linux/apps/buckos-tools:buckos-src",
     description = "BuckOS command-line interface for system management",
     homepage = "https://github.com/hodgesds/buckos",
