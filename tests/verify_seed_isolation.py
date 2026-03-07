@@ -202,6 +202,13 @@ def main():
             ".cache/buck",
         ]
 
+        # ── Patterns that must never appear in any binary string ─────
+        # Build-machine home dirs leak the builder's identity into
+        # shipped artifacts.
+        string_forbidden = [
+            "/home/",
+        ]
+
         # ── Scan tools/ (cross-compiler + sysroot) ───────────────────
         tools_dir = os.path.join(tmpdir, "tools")
         if os.path.isdir(tools_dir):
@@ -217,6 +224,8 @@ def main():
                 if "/bin/" in os.path.relpath(elf, tools_dir):
                     for v in check_strings_for_leaks(elf, rpath_forbidden):
                         warnings.append(f"tools string: {v}")
+                    for v in check_strings_for_leaks(elf, string_forbidden):
+                        failures.append(f"tools identity leak: {v}")
         else:
             failures.append("tools/ directory not found in archive")
 
@@ -256,6 +265,11 @@ def main():
                 if "/bin/" in os.path.relpath(elf, ht_dir):
                     for v in check_strings_for_leaks(elf, rpath_forbidden):
                         warnings.append(f"host-tools string: {v}")
+
+            # Build-machine identity must never leak into shipped binaries
+            for elf in ht_elfs:
+                for v in check_strings_for_leaks(elf, string_forbidden):
+                    failures.append(f"host-tools identity leak: {v}")
 
             # Every dynamically-linked host-tools binary must have been
             # built by our GCC (padded interp + $ORIGIN RPATH).  Binaries
