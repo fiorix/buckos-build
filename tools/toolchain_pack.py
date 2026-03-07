@@ -96,6 +96,53 @@ def _scrub_build_paths(directory):
         print(f"  scrubbed build paths from {scrubbed} ELF files", file=sys.stderr)
 
 
+def _scrub_home_paths(directory):
+    """Replace /home/... strings in ELF binaries with null bytes.
+
+    Build-machine home directory paths leak builder identity into shipped
+    artifacts.  These come from glibc crt*.o __FILE__ expansions, GCC
+    build-tree paths, upstream test fixtures (Go, QEMU), etc.
+
+    Safe to scrub because no runtime code path dereferences /home/...
+    paths — they only appear in assert messages, debug info, and
+    build-system metadata baked into string tables.
+    """
+    pattern = re.compile(rb'/home/[^\x00]+')
+    scrubbed = 0
+
+    for dirpath, _, filenames in os.walk(directory):
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            if os.path.islink(path) or not os.path.isfile(path):
+                continue
+            try:
+                with open(path, 'rb') as f:
+                    magic = f.read(4)
+                if magic != b'\x7fELF':
+                    continue
+                with open(path, 'rb') as f:
+                    data = f.read()
+                if b'/home/' not in data:
+                    continue
+
+                def _replace(m):
+                    return b'\x00' * len(m.group(0))
+
+                new_data = pattern.sub(_replace, data)
+                if new_data != data:
+                    orig_mode = os.stat(path).st_mode
+                    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+                    with open(path, 'wb') as f:
+                        f.write(new_data)
+                    os.chmod(path, orig_mode)
+                    scrubbed += 1
+            except (PermissionError, OSError):
+                pass
+
+    if scrubbed:
+        print(f"  scrubbed /home/ paths from {scrubbed} ELF files", file=sys.stderr)
+
+
 # glibc runtime files that must be isolated from LD_LIBRARY_PATH.
 # Including these in LD_LIBRARY_PATH causes host processes (bash, sh)
 # to load buckos glibc via the host's ld-linux → GLIBC_PRIVATE mismatch.
@@ -311,6 +358,9 @@ def main():
         # time — scrubbing truncates those to "/build" which breaks exec().
         print("Scrubbing build paths...", file=sys.stderr)
         _scrub_build_paths(stage_copy)
+        _scrub_home_paths(stage_copy)
+        if has_host_tools:
+            _scrub_home_paths(host_tools_dst)
 
         # All host-tools binaries are built by our GCC with specs, so they
         # have padded interp + RPATH placeholder at link time.  No pack-time
