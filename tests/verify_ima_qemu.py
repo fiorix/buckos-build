@@ -16,9 +16,12 @@ Env vars from sh_test:
 """
 
 import os
+import re
 import subprocess
 import sys
 import threading
+
+_CLEAR_RE = re.compile(r"\x1bc|\x1b\[[0-9]*[JH]|\x1b\[\?[0-9;]*[hl]")
 
 
 def find_file(base, name):
@@ -120,28 +123,37 @@ def main():
         proc.wait()
 
     output = "".join(lines)
-    print(output)
-    print("---")
+    output = _CLEAR_RE.sub("", output)
 
     failures = 0
+    if expect_marker not in output:
+        failures += 1
+    if expect_test_output and expect_test_output not in output:
+        failures += 1
+    if expect_no_test_output and expect_no_test_output in output:
+        failures += 1
+
+    if failures:
+        print(output)
+    else:
+        tail = "\n".join(output.splitlines()[-10:])
+        print(tail)
+    print("---")
 
     if expect_marker in output:
         print(f"PASS: found '{expect_marker}'")
     else:
         print(f"FAIL: '{expect_marker}' not found")
-        failures += 1
 
     if expect_test_output:
         if expect_test_output in output:
             print(f"PASS: found '{expect_test_output}'")
         else:
             print(f"FAIL: '{expect_test_output}' not found")
-            failures += 1
 
     if expect_no_test_output:
         if expect_no_test_output in output:
             print(f"FAIL: '{expect_no_test_output}' should not appear")
-            failures += 1
         else:
             print(f"PASS: '{expect_no_test_output}' correctly absent")
 

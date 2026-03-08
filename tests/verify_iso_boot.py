@@ -14,10 +14,13 @@ Env vars from sh_test:
 """
 
 import os
+import re
 import signal
 import subprocess
 import sys
 import threading
+
+_CLEAR_RE = re.compile(r"\x1bc|\x1b\[[0-9]*[JH]|\x1b\[\?[0-9;]*[hl]")
 
 
 def find_file(base, name):
@@ -148,16 +151,21 @@ def main():
         proc.wait()
 
     output = "".join(lines)
-    print(output[-3000:] if len(output) > 3000 else output)
+    output = _CLEAR_RE.sub("", output)
+    ok = found == set(markers.keys())
+
+    if ok:
+        tail = "\n".join(output.splitlines()[-10:])
+        print(tail)
+    else:
+        print(output)
     print("---")
 
-    ok = True
     for label, marker in markers.items():
         if label in found:
             print(f"PASS: {label}: found '{marker}'")
         else:
             print(f"FAIL: {label}: '{marker}' not found in output")
-            ok = False
 
     sys.exit(0 if ok else 1)
 
