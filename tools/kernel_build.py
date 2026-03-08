@@ -200,7 +200,13 @@ def main():
                     if not os.path.isabs(t) and (t.startswith("buck-out") or os.path.exists(t)):
                         t = os.path.abspath(t)
                 resolved.append(t)
-            make_cmd.append(f"{key}={' '.join(resolved)}")
+            if key in ("CC", "CXX") and len(resolved) > 1:
+                # Kernel doesn't use --sysroot or -specs — bare compiler
+                # only.  scripts/cc-version.sh quotes "$CC" so multi-word
+                # values fail with "unknown C compiler".
+                make_cmd.append(f"{key}={resolved[0]}")
+            else:
+                make_cmd.append(f"{key}={' '.join(resolved)}")
         else:
             make_cmd.append(flag)
 

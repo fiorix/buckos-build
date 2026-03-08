@@ -105,7 +105,10 @@ def main():
     if cc_override:
         make_base.extend(cc_override)
     elif cc:
-        make_base.append(f"CC={cc}")
+        # Kernel doesn't use --sysroot or -specs — bare compiler only.
+        # scripts/cc-version.sh quotes "$CC" so multi-word values fail.
+        bare_cc = cc.split()[0]
+        make_base.append(f"CC={bare_cc}")
         if hostcc:
             make_base.append(f"HOSTCC={hostcc}")
 
