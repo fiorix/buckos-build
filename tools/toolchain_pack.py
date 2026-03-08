@@ -3,6 +3,15 @@
 
 Collects compiler binaries, sysroot, support libraries, and GCC internal
 tools, generates metadata.json, and packs everything into a compressed tar.
+
+Archive format (v2):
+  tools/                  cross-compiler (stage 1 output)
+  host-tools/             merged FHS tree (hermetic PATH, backwards compat)
+  packages/               per-package archives (granular invalidation)
+    bash-5.2.37.tar.zst
+    rust-1.91.0.tar.zst
+    ...
+  metadata.json           provenance + package manifest
 """
 
 import argparse
@@ -228,172 +237,6 @@ def _scrub_home_paths(directory):
         print(f"  scrubbed home paths from {scrubbed} ELF files", file=sys.stderr)
 
 
-# glibc runtime files that must be isolated from LD_LIBRARY_PATH.
-# Including these in LD_LIBRARY_PATH causes host processes (bash, sh)
-# to load buckos glibc via the host's ld-linux → GLIBC_PRIVATE mismatch.
-_GLIBC_RUNTIME_FILES = frozenset({
-    "ld-linux-x86-64.so.2",
-    "libc.so.6",
-    "libm.so.6",
-    "libdl.so.2",
-    "libpthread.so.0",
-    "librt.so.1",
-    "libresolv.so.2",
-    "libnss_dns.so.2",
-    "libnss_files.so.2",
-    "libutil.so.1",
-    "libmvec.so.1",
-    "libthread_db.so.1",
-})
-
-
-def _isolate_glibc(directory):
-    """Move glibc runtime files into a private subdirectory.
-
-    Moves libc.so.6 and related glibc files from {directory}/lib64/ to
-    {directory}/lib64/glibc/.  After this:
-
-    - LD_LIBRARY_PATH includes lib64/ (safe — no libc.so.6)
-    - RPATH-based binaries find glibc via $ORIGIN/../lib64/glibc/
-    """
-    lib64 = os.path.join(directory, "lib64")
-    if not os.path.isdir(lib64):
-        return
-
-    glibc_dir = os.path.join(lib64, "glibc")
-    moved = 0
-
-    for name in os.listdir(lib64):
-        if name not in _GLIBC_RUNTIME_FILES:
-            continue
-        src = os.path.join(lib64, name)
-        if not os.path.isfile(src) and not os.path.islink(src):
-            continue
-        os.makedirs(glibc_dir, exist_ok=True)
-        os.rename(src, os.path.join(glibc_dir, name))
-        moved += 1
-
-    if moved:
-        print(f"  isolated {moved} glibc files into lib64/glibc/",
-              file=sys.stderr)
-
-
-def _rewrite_rpath(directory):
-    """Rewrite RPATH/RUNPATH in ELF binaries to $ORIGIN-relative paths.
-
-    Overwrites existing RPATH/RUNPATH strings in place (from the padded
-    placeholder set at build time via GCC specs).  Only processes
-    binaries that already have DT_RPATH or DT_RUNPATH entries.
-    """
-    DT_RPATH = 15
-    DT_RUNPATH = 29
-    SHT_DYNAMIC = 6
-    rewritten = 0
-
-    # Find lib dirs to target.  Includes lib64/glibc/ if present (from
-    # _isolate_glibc) so RPATH-based binaries can find buckos libc.
-    lib_suffixes = []
-    for ld in ("lib", "lib64", os.path.join("lib64", "glibc")):
-        if os.path.isdir(os.path.join(directory, ld)):
-            lib_suffixes.append(ld)
-
-    for dirpath, _, filenames in os.walk(directory):
-        for name in filenames:
-            path = os.path.join(dirpath, name)
-            if os.path.islink(path) or not os.path.isfile(path):
-                continue
-            try:
-                with open(path, 'rb') as f:
-                    magic = f.read(4)
-                if magic != b'\x7fELF':
-                    continue
-                with open(path, 'rb') as f:
-                    data = bytearray(f.read())
-
-                # Only handle 64-bit LE (x86_64)
-                if data[4] != 2 or data[5] != 1:
-                    continue
-
-                e_shoff = struct.unpack_from('<Q', data, 40)[0]
-                e_shentsize = struct.unpack_from('<H', data, 58)[0]
-                e_shnum = struct.unpack_from('<H', data, 60)[0]
-
-                # Find SHT_DYNAMIC section and its linked .dynstr
-                dyn_offset = dyn_size = dyn_entsize = 0
-                dynstr_offset = 0
-                for i in range(e_shnum):
-                    sh_off = e_shoff + i * e_shentsize
-                    sh_type = struct.unpack_from('<I', data, sh_off + 4)[0]
-                    if sh_type == SHT_DYNAMIC:
-                        dyn_offset = struct.unpack_from('<Q', data, sh_off + 24)[0]
-                        dyn_size = struct.unpack_from('<Q', data, sh_off + 32)[0]
-                        dyn_entsize = struct.unpack_from('<Q', data, sh_off + 56)[0]
-                        sh_link = struct.unpack_from('<I', data, sh_off + 40)[0]
-                        dstr_sh = e_shoff + sh_link * e_shentsize
-                        dynstr_offset = struct.unpack_from('<Q', data, dstr_sh + 24)[0]
-                        break
-
-                if not dyn_offset or not dynstr_offset:
-                    continue
-                if not dyn_entsize:
-                    dyn_entsize = 16  # sizeof(Elf64_Dyn)
-
-                # Compute $ORIGIN-relative paths from this binary to lib dirs
-                rel = os.path.relpath(directory, dirpath)
-                rpath_parts = []
-                for suffix in lib_suffixes:
-                    rpath_parts.append("$ORIGIN/" + os.path.join(rel, suffix))
-                new_rpath = ":".join(rpath_parts).encode("ascii") if rpath_parts else None
-                if not new_rpath:
-                    continue
-
-                modified = False
-                n_entries = dyn_size // dyn_entsize
-                for i in range(n_entries):
-                    ent_off = dyn_offset + i * dyn_entsize
-                    d_tag = struct.unpack_from('<q', data, ent_off)[0]
-                    if d_tag in (DT_RPATH, DT_RUNPATH):
-                        d_val = struct.unpack_from('<Q', data, ent_off + 8)[0]
-                        str_off = dynstr_offset + d_val
-                        end = data.index(0, str_off)
-                        avail = end - str_off
-                        if avail <= 0:
-                            continue
-                        old_rpath = data[str_off:end]
-                        # Leave pure $ORIGIN RPATHs (set by the build
-                        # system) alone.  But rewrite combined RPATHs
-                        # that have both $ORIGIN and the specs placeholder
-                        # (e.g. Rust: "$ORIGIN/../lib:/buckos-rpath-pad…")
-                        # so the seed gets glibc paths too.
-                        if b"$ORIGIN" in old_rpath and b"/buckos-rpath-pad" not in old_rpath:
-                            continue
-                        if len(new_rpath) <= avail:
-                            data[str_off:str_off + len(new_rpath)] = new_rpath
-                            for j in range(str_off + len(new_rpath), end):
-                                data[j] = 0
-                            modified = True
-                        else:
-                            # New value doesn't fit — zero out the
-                            # placeholder; _inject_rpath already handled
-                            # these via patchelf.
-                            for j in range(str_off, end):
-                                data[j] = 0
-                            modified = True
-
-                if modified:
-                    orig_mode = os.stat(path).st_mode
-                    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-                    with open(path, 'wb') as f:
-                        f.write(data)
-                    os.chmod(path, orig_mode)
-                    rewritten += 1
-
-            except (PermissionError, OSError, ValueError, struct.error):
-                pass
-
-    if rewritten:
-        print(f"  rewrote RPATH in {rewritten} ELF files", file=sys.stderr)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Pack bootstrap toolchain into archive")
@@ -405,6 +248,9 @@ def main():
     parser.add_argument("--compression", choices=["zst", "xz", "gz"], default="zst")
     parser.add_argument("--host-tools-dir", default=None,
                         help="Directory containing host tools to include as host-tools/")
+    parser.add_argument("--package", nargs=4, action="append", default=[],
+                        metavar=("LABEL", "NAME", "VERSION", "PREFIX"),
+                        help="Per-package archive: label name version prefix_dir (repeatable)")
     args = parser.parse_args()
     sanitize_global_env()
 
@@ -453,28 +299,53 @@ def main():
             _scrub_home_paths(host_tools_dst)
 
         # All host-tools binaries are built by our GCC with specs, so they
-        # have padded interp + RPATH placeholder at link time.  No pack-time
-        # ELF patching needed — just isolate glibc and rewrite placeholders.
-        #
-        # 1. _isolate_glibc: move libc.so.6 et al. from lib64/ to
-        #    lib64/glibc/ so LD_LIBRARY_PATH (lib64/) is safe for host
-        #    processes.
-        #
-        # 2. _rewrite_rpath: overwrite the specs RPATH placeholder with
-        #    $ORIGIN-relative paths to lib/, lib64/, lib64/glibc/.
-        if has_host_tools:
-            print("Isolating glibc from host-tools...", file=sys.stderr)
-            _isolate_glibc(host_tools_dst)
-            print("Rewriting RPATH in host-tools...", file=sys.stderr)
-            _rewrite_rpath(host_tools_dst)
+        # have padded interp + $ORIGIN RPATH at link time.  No pack-time
+        # ELF patching needed — RPATH is correct from build time, and
+        # unpack rewrites the padded interp to the actual seed path.
+
+        # Create per-package archives if --package was given
+        pkg_manifest = {}
+        if args.package:
+            pkg_dir = os.path.join(tmpdir, "packages")
+            os.makedirs(pkg_dir, exist_ok=True)
+            for label, name, version, prefix in args.package:
+                prefix = os.path.abspath(prefix)
+                if not os.path.isdir(prefix):
+                    print(f"warning: package prefix not found, skipping: {prefix}", file=sys.stderr)
+                    continue
+                archive_name = f"{name}-{version}.tar.zst"
+                archive_path = os.path.join(pkg_dir, archive_name)
+                print(f"  packing package {name}-{version}...", file=sys.stderr)
+                tar_p = subprocess.Popen(
+                    ["tar", "-cf", "-", "-C", prefix, "."],
+                    stdout=subprocess.PIPE, env=clean_env(),
+                )
+                zstd_p = subprocess.Popen(
+                    ["zstd", "-T0", "-9", "-o", archive_path],
+                    stdin=tar_p.stdout, env=clean_env(),
+                )
+                tar_p.stdout.close()
+                zstd_p.wait()
+                rc = tar_p.wait() or zstd_p.returncode
+                if rc != 0:
+                    print(f"error: failed to pack package {name}", file=sys.stderr)
+                    sys.exit(1)
+                pkg_manifest[label] = {
+                    "archive": f"packages/{archive_name}",
+                    "sha256": sha256_file(archive_path),
+                    "name": name,
+                    "version": version,
+                }
+            print(f"Packed {len(pkg_manifest)} per-package archives", file=sys.stderr)
 
         # Compute content hash from scrubbed stage
         print("Computing content hash...", file=sys.stderr)
         contents_sha256 = sha256_directory(stage_copy)
 
         # Generate metadata
+        fmt_version = 2 if pkg_manifest else 1
         metadata = {
-            "format_version": 1,
+            "format_version": fmt_version,
             "target_triple": args.target_triple,
             "gcc_version": args.gcc_version,
             "glibc_version": args.glibc_version,
@@ -483,6 +354,8 @@ def main():
         }
         if has_host_tools:
             metadata["has_host_tools"] = True
+        if pkg_manifest:
+            metadata["packages"] = pkg_manifest
 
         meta_path = os.path.join(tmpdir, "metadata.json")
         with open(meta_path, "w") as f:
@@ -497,6 +370,8 @@ def main():
         tar_items.extend(["-C", tmpdir, "metadata.json"])
         if has_host_tools:
             tar_items.extend(["-C", tmpdir, "host-tools"])
+        if pkg_manifest:
+            tar_items.extend(["-C", tmpdir, "packages"])
 
         if args.compression == "zst":
             tar_p = subprocess.Popen(

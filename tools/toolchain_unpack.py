@@ -154,11 +154,7 @@ def _rewrite_interpreters(toolchain_dir):
     ld-linux versions causes segfaults.  Patch all binaries to use the
     bundled buckos ld-linux so the toolchain is self-contained.
     """
-    # Check both the direct path and the glibc-isolated path (pack-time
-    # _isolate_glibc moves ld-linux from lib64/ to lib64/glibc/).
     ld_linux = os.path.join(toolchain_dir, "host-tools", "lib64", "ld-linux-x86-64.so.2")
-    if not os.path.exists(ld_linux):
-        ld_linux = os.path.join(toolchain_dir, "host-tools", "lib64", "glibc", "ld-linux-x86-64.so.2")
     if not os.path.exists(ld_linux):
         return
 
@@ -203,9 +199,9 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
     built-in link spec.  ld uses the last --dynamic-linker, so our append
     overrides the default.
 
-    Combined with LD_LIBRARY_PATH (set by the build helpers to include
-    host-tools/lib64), all compiled programs find the matching buckos
-    ld-linux + libc at runtime.
+    Combined with $ORIGIN-relative RPATH (also in specs), compiled
+    programs find the matching buckos ld-linux + libc at runtime
+    without LD_LIBRARY_PATH.
     """
     installed = 0
 
@@ -225,15 +221,10 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
             installed += 1
 
     # Host-tools GCC: host-tools/lib64/gcc/<triple>/<ver>/specs
-    # Uses host-tools ld-linux as dynamic linker.  Check the glibc-isolated
-    # path too (pack-time _isolate_glibc moves ld-linux to lib64/glibc/).
+    # Uses host-tools ld-linux as dynamic linker.
     host_ld = os.path.join(
         toolchain_dir, "host-tools", "lib64", "ld-linux-x86-64.so.2",
     )
-    if not os.path.exists(host_ld):
-        host_ld = os.path.join(
-            toolchain_dir, "host-tools", "lib64", "glibc", "ld-linux-x86-64.so.2",
-        )
     if os.path.exists(host_ld):
         host_ld_abs = os.path.abspath(host_ld)
         # Host-tools GCC may use a different triple (e.g. x86_64-pc-linux-gnu)
@@ -253,38 +244,27 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
 def _write_specs(gcc_libdir, ld_linux_abs, add_lib_paths=False):
     """Write a specs override into a GCC lib directory.
 
-    Uses real absolute lib paths as RPATH so freshly compiled binaries
-    can find buckos glibc at runtime without LD_LIBRARY_PATH.  This
-    avoids poisoning the cross-compiler (a host binary) with buckos
-    glibc via LD_LIBRARY_PATH — on hosts with older glibc the mismatch
-    causes segfaults.
+    Uses $ORIGIN-relative RPATH so compiled binaries find their libs
+    at runtime without LD_LIBRARY_PATH.  Works in both seed layout
+    (bin/foo → ../lib64/) and rootfs (/usr/bin/foo → /usr/lib64/).
 
     When add_lib_paths is True, also adds -L flags so the linker can
     find CRT startup files (crt1.o, crti.o) in the bundled lib dirs.
     Only used for host-tools GCC — the cross-compiler finds CRT via
     its sysroot.
     """
-    # Derive lib dirs from ld-linux location.
-    # ld-linux is at <prefix>/lib64/glibc/ld-linux-x86-64.so.2 or
-    # <prefix>/lib64/ld-linux-x86-64.so.2.
+    # ld-linux is at <prefix>/lib64/ld-linux-x86-64.so.2.
     ld_dir = os.path.dirname(ld_linux_abs)
-    # Walk up to the prefix root (host-tools/ or tools/<triple>/sys-root/)
-    if os.path.basename(ld_dir) == "glibc":
-        prefix = os.path.dirname(os.path.dirname(ld_dir))  # up from lib64/glibc
-    else:
-        prefix = os.path.dirname(ld_dir)  # up from lib64
+    prefix = os.path.dirname(ld_dir)  # up from lib64
 
-    rpath_parts = []
+    rpath_str = "$ORIGIN/../lib64:$ORIGIN/../lib"
     startfile_prefixes = []
-    for d in ("lib", "lib64", os.path.join("lib64", "glibc")):
-        p = os.path.join(prefix, d)
-        if os.path.isdir(p):
-            abs_p = os.path.abspath(p)
-            rpath_parts.append(abs_p)
-            if add_lib_paths:
+    if add_lib_paths:
+        for d in ("lib", "lib64"):
+            p = os.path.join(prefix, d)
+            if os.path.isdir(p):
                 # Trailing slash is required for GCC startfile prefix
-                startfile_prefixes.append(abs_p + "/")
-    rpath_str = ":".join(rpath_parts) if rpath_parts else "/buckos-rpath-pad" + "X" * 228
+                startfile_prefixes.append(os.path.abspath(p) + "/")
 
     specs_content = (
         "*link:\n"

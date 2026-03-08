@@ -10,7 +10,7 @@ stage 2 host tools).  This ensures the seed contains hermetically-built
 buckos-native host tools with no host library or path leakage.
 """
 
-load("//defs:providers.bzl", "BootstrapStageInfo")
+load("//defs:providers.bzl", "BootstrapStageInfo", "PackageInfo")
 
 def _toolchain_export_impl(ctx):
     stage = ctx.attrs.stage[BootstrapStageInfo]
@@ -33,6 +33,15 @@ def _toolchain_export_impl(ctx):
         host_tools_dir = ctx.attrs.host_tools[DefaultInfo].default_outputs[0]
         cmd.add("--host-tools-dir", host_tools_dir)
 
+    # Per-package archives for granular invalidation and future prebuilt
+    # resolution.  Each package's prefix is packed into its own tar.zst
+    # inside packages/ in the seed archive.
+    if ctx.attrs.host_packages != None:
+        for pkg in ctx.attrs.host_packages:
+            if PackageInfo in pkg:
+                info = pkg[PackageInfo]
+                cmd.add("--package", str(pkg.label), info.name, info.version, info.prefix)
+
     ctx.actions.run(cmd, category = "toolchain_export", identifier = ctx.attrs.name, allow_cache_upload = True)
 
     return [DefaultInfo(default_output = archive)]
@@ -43,6 +52,10 @@ toolchain_export = rule(
         "stage": attrs.dep(providers = [BootstrapStageInfo]),
         "host_tools": attrs.option(
             attrs.transition_dep(cfg = "//tc/exec:stage3-transition"),
+            default = None,
+        ),
+        "host_packages": attrs.option(
+            attrs.list(attrs.transition_dep(cfg = "//tc/exec:stage3-transition")),
             default = None,
         ),
         "gcc_version": attrs.string(default = "14.3.0"),

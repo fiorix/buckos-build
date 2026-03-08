@@ -15,11 +15,10 @@ package(
     license = "Artistic-1.0-Perl OR GPL-1.0-or-later",
     # Perl uses its own Configure script (capital C), not autotools.
     # Pass -Dcc/-Dld to force Configure to use our GCC (with specs) so
-    # the output perl binary gets padded interp + RPATH placeholder.
+    # the output perl binary gets padded interp + $ORIGIN RPATH.
     # Test programs and perl itself run at build time via the host
     # ld-linux (padded path collapses to /lib64/ld-linux-*) and
-    # LD_LIBRARY_PATH covers library lookup since the specs RPATH
-    # placeholder (/buckos-rpath-pad...) doesn't resolve on the host.
+    # $ORIGIN RPATH resolves correctly relative to the binary.
     install_script = """
 cd "$SRCS"
 
@@ -27,8 +26,7 @@ chmod +x Configure
 
 # Convert -L paths to -rpath so the perl binary can find dep libs at
 # runtime.  In stage 2 these are Buck-out paths (works on build host).
-# In stage 3, specs add the RPATH placeholder; _rewrite_rpath finalizes
-# everything to $ORIGIN-relative paths in the seed.
+# In stage 3, specs add $ORIGIN-relative RPATH directly.
 RPATH_FLAGS=""
 for flag in $LDFLAGS; do
     case "$flag" in

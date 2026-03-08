@@ -207,11 +207,10 @@ def derive_lib_paths(bin_dirs, env):
     finds its m4sugar data files.
 
     Directories containing libc.so.6 are EXCLUDED from LD_LIBRARY_PATH
-    to avoid poisoning host processes with buckos glibc.  The isolated
-    glibc directory (lib64/glibc/) is also excluded — freshly compiled
-    buckos binaries find glibc via RPATH set in the GCC specs at unpack
-    time.  Including glibc in LD_LIBRARY_PATH would poison the cross-
-    compiler (a host binary) causing segfaults on hosts with older glibc.
+    to avoid poisoning host processes with buckos glibc.  Buckos binaries
+    find glibc via $ORIGIN RPATH set at build time by GCC specs.
+    Including glibc in LD_LIBRARY_PATH would poison the cross-compiler
+    (a host binary) causing segfaults on hosts with older glibc.
     """
     lib_parts = []
     for bin_dir in bin_dirs:

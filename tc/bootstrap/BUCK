@@ -15,8 +15,9 @@ Provides:
 """
 
 load("//tc:toolchain_rules.bzl", "buckos_bootstrap_toolchain")
-load("//tc:transitions.bzl", "default_dep")
+load("//tc:transitions.bzl", "default_dep", "stage3_dep")
 load("//defs/rules:toolchain_export.bzl", "toolchain_export")
+load("//tc/bootstrap/host-tools:packages.bzl", "HOST_TOOL_PACKAGES")
 
 buckos_bootstrap_toolchain(
     name = "bootstrap-toolchain",
@@ -44,13 +45,20 @@ buckos_bootstrap_toolchain(
     extra_cflags = ["-march=x86-64-v3"],
     extra_ldflags = [
         "-Wl,--dynamic-linker," + "/" * 228 + "lib64/ld-linux-x86-64.so.2",
-        # Padded RPATH placeholder: a nonexistent path that reserves 256
-        # bytes in the ELF RUNPATH string table.  toolchain_pack.py
-        # overwrites it with $ORIGIN-relative paths so buckos binaries
-        # find their libc via RPATH instead of LD_LIBRARY_PATH (which
-        # would poison host processes via shell=True → /bin/sh segfaults).
-        "-Wl,-rpath,/buckos-rpath-pad" + "X" * 228,
+        # $ORIGIN-relative RPATH so buckos binaries find their libs at
+        # runtime without LD_LIBRARY_PATH.  Works in both seed layout
+        # (bin/foo → ../lib64/) and rootfs (/usr/bin/foo → /usr/lib64/).
+        "-Wl,-rpath,$ORIGIN/../lib64:$ORIGIN/../lib",
     ],
+    visibility = ["PUBLIC"],
+)
+
+# Stage 3 host tools for consumers outside the bootstrap (e.g. system
+# images).  Same stage3 transition as seed-export, so DICE nodes are
+# shared — no duplicate builds.
+stage3_dep(
+    name = "stage3-host-tools",
+    dep = "//tc/bootstrap/host-tools:host-tools",
     visibility = ["PUBLIC"],
 )
 
@@ -61,6 +69,7 @@ toolchain_export(
     name = "seed-export",
     stage = "//tc/bootstrap/stage1:stage1",
     host_tools = "//tc/bootstrap/host-tools:host-tools",
+    host_packages = HOST_TOOL_PACKAGES,
     gcc_version = "14.3.0",
     glibc_version = "2.42",
     visibility = ["PUBLIC"],

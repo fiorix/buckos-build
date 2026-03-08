@@ -163,7 +163,7 @@ def _buckos_bootstrap_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
             # "-Wl,--dynamic-linker,///...///lib64/ld-linux-x86-64.so.2"
             interp_val = flag.split("--dynamic-linker,", 1)[1]
         elif "-rpath," in flag and "rpath-link" not in flag:
-            # "-Wl,-rpath,/buckos-rpath-padXXX..."
+            # "-Wl,-rpath,$ORIGIN/../lib64:$ORIGIN/../lib"
             rpath_val = flag.split("-rpath,", 1)[1]
         else:
             remaining_ldflags.append(flag)

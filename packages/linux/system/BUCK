@@ -1863,30 +1863,24 @@ rootfs(
         "//packages/acct-group/systemd-journal:systemd-journal",
         "//packages/acct-group/sgx:sgx",
         "//packages/acct-group/tape:tape",
-        # C/C++ runtime (required for all dynamically-linked binaries)
-        "//packages/linux/core/glibc:glibc",
-        "//packages/linux/lang/gcc:gcc-runtime",  # Provides libstdc++.so.6, libgcc_s.so.1 for C++ apps
+        # Stage 3 host tools from the seed — glibc, bash, coreutils, rust,
+        # go, gcc-native, cmake, make, kmod, grub, filesystem tools, etc.
+        # Using the stage3-transitioned target shares DICE nodes with
+        # seed-export, avoiding duplicate builds at DEFAULT config.
+        "//tc/bootstrap:stage3-host-tools",
 
-        # Core system utilities
-        "//packages/linux/system/apps/coreutils:coreutils",
-        "//packages/linux/system/apps/which:which",
+        # GCC runtime (libstdc++, libgcc_s) provided by gcc-native
+        # in stage3-host-tools above.
+
+        # Core utilities not in host-tools
         "//packages/linux/lang/binutils:binutils",  # Provides strings, nm, objdump, etc.
-        "//packages/linux/editors/grep:grep",
-        "//packages/linux/system/libs/cpio:cpio",
-        "//packages/linux/core/util-linux:util-linux",
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/terminal/ncurses:ncurses",
         "//packages/linux/system/terminal/readline:readline",
-        "//packages/linux/core/bash:bash",
         "//packages/linux/core/less:less",
         "//packages/linux/system/libs/utility/libffi:libffi",
-        "//packages/linux/system/libs/compression/bzip2:bzip2",
-        "//packages/linux/system/libs/compression/xz:xz",
         "//packages/linux/system/libs/compression/lz4:lz4",
-        "//packages/linux/system/libs/compression/zstd:zstd",
         "//packages/linux/core/procps-ng:procps-ng",
-        "//packages/linux/core/file:file",
-        "//packages/linux/system/apps/findutils:findutils",
         "//packages/linux/dev-tools/debuggers/strace:strace",
         "//packages/linux/system/apps/shadow:shadow",
         "//packages/linux/system/apps/sudo:sudo",  # Required for installer and admin tasks
@@ -1911,13 +1905,11 @@ rootfs(
         # Common network utilities
         "//packages/linux/network/iputils:iputils",  # ping, tracepath, etc.
         "//packages/linux/network/wget:wget",  # wget for downloads
-        "//packages/linux/system/libs/kmod:kmod",  # Provides modprobe, lsmod, etc.
 
         # Security and capabilities (required by systemd)
         "//packages/linux/system/libs/ipc/libseccomp:libseccomp",
         "//packages/linux/system/libs/ipc/libcap:libcap",
         "//packages/linux/system/libs/ipc/attr:attr",
-        "//packages/linux/system/libs/crypto/libxcrypt:libxcrypt",
         "//packages/linux/system/libs/crypto/argon2:argon2",
         "//packages/linux/system/security/auth/privilege:polkit",  # Required for systemd-logind session creation
 
@@ -1928,15 +1920,14 @@ rootfs(
         # Note: eudev removed - systemd provides systemd-udevd
         "//packages/linux/system/libs/libseat:libseat",
         "//packages/linux/system/libs/ipc/dbus:dbus",
-        "//packages/linux/system/libs/kmod:kmod",
 
         # Firmware (required for GPU, WiFi, etc. on real hardware)
         "//packages/linux/system/firmware/linux-firmware:linux-firmware",
 
         # Graphics stack
         "//packages/linux/desktop/mesa:mesa",
-        # Mesa's radeonsi driver depends on LLVM at runtime
-        "//packages/linux/core/llvm:llvm",
+        # Mesa's radeonsi driver depends on LLVM at runtime —
+        # llvm-native (from stage3-host-tools) provides libLLVM.so
         "//packages/linux/dev-libs/elfutils:elfutils",
         "//packages/linux/system/libs/data/libxml2:libxml2",
         "//packages/linux/graphics/rendering/wayland:wayland",
@@ -1973,20 +1964,10 @@ rootfs(
         # Note: Using getty autologin + startplasma-wayland instead of plasma-login-manager
         # (plasma-login-manager 6.5.91 requires PlasmaQuick 6.5.90, but we have 6.2.4)
 
-        # Development tools and build toolchain
+        # Development tools not in host-tools
         "//packages/linux/dev-tools/vcs/git:git",
         "//packages/linux/editors/vim:vim",
-        "//packages/linux/lang/rust:rust",  # Rust toolchain including cargo
-        "//packages/linux/lang/go:go",  # Go toolchain
-        "//packages/linux/lang/gcc:gcc",  # GCC compiler
-        "//packages/linux/dev-tools/build-systems/make:make",
-        "//packages/linux/dev-tools/build-systems/cmake:cmake",
-        "//packages/linux/dev-tools/build-systems/meson:meson",
-        "//packages/linux/dev-tools/build-systems/ninja:ninja",
-        "//packages/linux/dev-tools/build-systems/autoconf:autoconf",
-        "//packages/linux/dev-tools/build-systems/automake:automake",
-        "//packages/linux/dev-tools/build-systems/libtool:libtool",
-        "//packages/linux/dev-tools/build-systems/pkg-config:pkg-config",
+        # GCC compiler provided by stage3-host-tools (gcc-native)
 
         # BuckOS tools (uses cargo_workspace_package with vendor tarball)
         "//packages/linux/apps/buckos-tools/installer:buckos-installer",
@@ -1995,12 +1976,10 @@ rootfs(
         # Web browser
         "//packages/linux/www/firefox:firefox",
 
-        # Installer dependencies - filesystem tools
-        "//packages/linux/system/filesystem/native/e2fsprogs:e2fsprogs",  # mkfs.ext4
+        # Installer dependencies - filesystem tools (e2fsprogs, btrfs-progs,
+        # dosfstools, grub provided by stage3-host-tools above)
         "//packages/linux/system/filesystem/management/parted:parted",  # parted
-        "//packages/linux/system/filesystem/native/btrfs-progs:btrfs-progs",  # mkfs.btrfs
         # xfsprogs requires libinih - TODO: add libinih package
-        "//packages/linux/system/filesystem/native/dosfstools:dosfstools",  # mkfs.vfat (EFI)
         "//packages/linux/system/filesystem/management/cryptsetup:cryptsetup",  # LUKS encryption
         "//packages/linux/system/filesystem/management/lvm2:lvm2",  # LVM2 utilities
 
@@ -2013,8 +1992,7 @@ rootfs(
         "//packages/linux/system/hardware/pciutils:pciutils",  # lspci (GPU detection)
         "//packages/linux/system/hardware/usbutils:usbutils",  # lsusb (USB/Bluetooth detection)
 
-        # Installer dependencies - bootloader
-        "//packages/linux/boot/grub:grub",  # grub-install, grub-mkconfig
+        # grub provided by stage3-host-tools
 
         # IMPORTANT: This must be LAST to override PAM's /etc/environment file
         ":live-environment-gen",

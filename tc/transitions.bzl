@@ -97,6 +97,22 @@ stage3_transition = rule(
     is_configuration_rule = True,
 )
 
+def _stage3_dep_impl(ctx):
+    """Forward a dep's DefaultInfo through the stage3 transition.
+
+    Lets non-bootstrap consumers (e.g. system image) share the same
+    stage3-built packages that go into the seed, avoiding duplicate
+    builds at DEFAULT config.
+    """
+    return [ctx.attrs.dep[DefaultInfo]]
+
+stage3_dep = rule(
+    impl = _stage3_dep_impl,
+    attrs = {
+        "dep": attrs.transition_dep(cfg = "//tc/exec:stage3-transition"),
+    },
+)
+
 def _strip_toolchain_mode_impl(platform: PlatformInfo, refs: struct) -> PlatformInfo:
     """Strip the bootstrap-mode constraint, returning to the base platform.
 

@@ -262,6 +262,31 @@ def package(
         "sqlite",  # dep of python-host (_sqlite3)
         "acl", "attr", "libcap", "gettext", "autoconf", "automake", "libtool",
     )
+
+    # Seed tools that appear as explicit host_deps in package() calls.
+    # In DEFAULT mode (with seed), these tools are on the hermetic PATH
+    # from the seed's host-tools/ — building them as exec_deps is wasteful.
+    # Gate them behind stage3 mode where PATH is empty and tools must come
+    # from per-rule exec_deps.
+    _SEED_HOST_TOOLS = (
+        "//packages/linux/dev-tools/build-systems/autoconf:autoconf",
+        "//packages/linux/dev-tools/build-systems/automake:automake",
+        "//packages/linux/dev-tools/build-systems/libtool:libtool",
+        "//packages/linux/dev-tools/build-systems/pkg-config:pkg-config",
+        "//packages/linux/dev-tools/build-systems/cmake:cmake",
+        "//packages/linux/dev-tools/build-systems/meson:meson",
+        "//packages/linux/dev-tools/build-systems/ninja:ninja",
+        "//packages/linux/dev-tools/dev-utils/bison:bison",
+        "//packages/linux/dev-tools/dev-utils/flex:flex",
+        "//packages/linux/dev-tools/parsers/bison:bison",
+        "//packages/linux/dev-tools/parsers/flex:flex",
+        "//packages/linux/dev-tools/documentation/help2man:help2man",
+        "//packages/linux/lang/rust:rust",
+        "//packages/linux/lang/linkers:mold",
+        "//packages/linux/core/llvm:llvm-native",
+        "//packages/linux/system/filesystem/native/squashfs-tools:squashfs-tools",
+    )
+
     _CONFIGURABLE_RULES = ("autotools", "meson", "cmake", "mozbuild")
     _auto_tool_deps = []
     if name not in _TOOL_BLOCKLIST and build_rule in _CONFIGURABLE_RULES:
@@ -298,8 +323,22 @@ def package(
                 "//packages/linux/dev-tools/build-systems/cmake:cmake",
                 "//packages/linux/dev-tools/build-systems/ninja:ninja",
             ])
+
+    # Gate explicit host_deps that reference seed tools.  Split into
+    # seed-provided (gated) and non-seed (always resolved) so packages
+    # with mixed deps (e.g. autoconf + intltool) work correctly.
+    raw_host_deps = build_kwargs.pop("host_deps", [])
+    if type(raw_host_deps) != "Select" and raw_host_deps:
+        _seed = [d for d in raw_host_deps if d in _SEED_HOST_TOOLS]
+        _non_seed = [d for d in raw_host_deps if d not in _SEED_HOST_TOOLS]
+        if _seed:
+            staged_seed = select({
+                "//tc/exec:is-stage3-mode": _seed,
+                "DEFAULT": [],
+            })
+            raw_host_deps = _non_seed + staged_seed if _non_seed else staged_seed
+
     if _auto_tool_deps:
-        raw_host_deps = build_kwargs.pop("host_deps", [])
         # In seed/bootstrap mode, the toolchain provides PATH via --hermetic-path
         # or --allow-host-path; exec_deps are only needed in stage3 mode where
         # PATH is empty (--hermetic-empty) and tools come from per-rule deps.
@@ -309,9 +348,13 @@ def package(
         })
         if type(raw_host_deps) == "Select":
             all_host_deps = raw_host_deps + staged_auto_deps
-        else:
+        elif raw_host_deps:
             all_host_deps = list(raw_host_deps) + staged_auto_deps
+        else:
+            all_host_deps = staged_auto_deps
         build_kwargs["host_deps"] = all_host_deps
+    elif type(raw_host_deps) == "Select" or raw_host_deps:
+        build_kwargs["host_deps"] = raw_host_deps
 
     # -- 2. Resolve USE-conditional deps -------------------------------------
     raw_deps = build_kwargs.pop("deps", [])
