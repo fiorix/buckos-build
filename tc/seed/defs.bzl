@@ -17,14 +17,18 @@ def maybe_export_seed():
             visibility = ["PUBLIC"],
         )
 
+_DEFAULT_SEED_URL = read_config("buckos", "default_seed_url", "")
+_DEFAULT_SEED_SHA256 = read_config("buckos", "default_seed_sha256", "")
+
 def seed_toolchain():
     """Declare the seed-toolchain target based on .buckconfig.
 
     Priority (highest first):
       1. buckos.source_mode = true  — force bootstrap regardless of seed config
       2. buckos.seed_path           — local archive (export_file)
-      3. buckos.seed_url            — remote download (http_file)
-      4. neither                    — bootstrap from source (stage 1 cross-compiler)
+      3. buckos.seed_url            — explicit remote URL (http_file)
+      4. default seed URL           — auto-download from buckos.default_seed_url
+      5. none configured            — bootstrap from source (stage 1 cross-compiler)
 
     The full seed archive (//tc/bootstrap:seed-export) must be built
     explicitly — it cannot be the seed-toolchain dep because
@@ -39,11 +43,11 @@ def seed_toolchain():
         archive = None
     elif path:
         archive = "//:" + path
-    elif url:
+    elif url or _DEFAULT_SEED_URL:
         native.http_file(
             name = "seed-archive",
-            urls = [url],
-            sha256 = read_config("buckos", "seed_sha256", ""),
+            urls = [url or _DEFAULT_SEED_URL],
+            sha256 = read_config("buckos", "seed_sha256", "") or _DEFAULT_SEED_SHA256,
             out = "buckos-seed.tar.zst",
         )
         archive = ":seed-archive"
@@ -69,6 +73,11 @@ def seed_toolchain():
         buckos_bootstrap_toolchain(
             name = "seed-toolchain",
             bootstrap_stage = "//tc/bootstrap/stage1:stage1",
+            host_tools = "//tc/bootstrap:host-tools-exec",
             extra_cflags = ["-march=x86-64-v3"],
+            extra_ldflags = [
+                "-Wl,--dynamic-linker," + "/" * 228 + "lib64/ld-linux-x86-64.so.2",
+                "-Wl,-rpath,$ORIGIN/../lib64:$ORIGIN/../lib",
+            ],
             visibility = ["PUBLIC"],
         )

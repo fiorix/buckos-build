@@ -138,6 +138,12 @@ python_binary(
 )
 
 python_binary(
+    name = "rewrite_interps",
+    main = "rewrite_interps.py",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
     name = "toolchain_pack",
     main = "toolchain_pack.py",
     deps = [":_env"],

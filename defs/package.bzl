@@ -263,21 +263,32 @@ def package(
         "acl", "attr", "libcap", "gettext", "autoconf", "automake", "libtool",
     )
 
-    # Lightweight build system tools safe to gate behind stage3 mode.
-    # In DEFAULT mode these are available via seed hermetic PATH or host
-    # PATH — building them as exec_deps is wasteful.  Only includes tools
-    # that are interchangeable with host versions.  Heavyweight tools
-    # (rust, llvm, mold) are NOT gated because package authors explicitly
-    # request the buckos version and host versions may be absent or broken.
+    # Tools provided by the seed archive.  In DEFAULT mode (seed present),
+    # these are available via hermetic PATH — building them as exec_deps
+    # is wasteful.  In source_mode (no seed) or stage3 (empty PATH),
+    # they must be built from source.
     _SEED_HOST_TOOLS = (
+        # Build systems
         "//packages/linux/dev-tools/build-systems/autoconf:autoconf",
         "//packages/linux/dev-tools/build-systems/automake:automake",
         "//packages/linux/dev-tools/build-systems/libtool:libtool",
+        "//packages/linux/dev-tools/build-systems/cmake:cmake",
+        "//packages/linux/dev-tools/build-systems/meson:meson",
+        "//packages/linux/dev-tools/build-systems/ninja:ninja",
+        "//packages/linux/dev-tools/build-systems/pkg-config:pkg-config",
+        # Dev utilities
         "//packages/linux/dev-tools/dev-utils/bison:bison",
         "//packages/linux/dev-tools/dev-utils/flex:flex",
         "//packages/linux/dev-tools/parsers/bison:bison",
         "//packages/linux/dev-tools/parsers/flex:flex",
         "//packages/linux/dev-tools/documentation/help2man:help2man",
+        # Languages / compilers
+        "//packages/linux/lang/rust:rust",
+        "//packages/linux/lang/go:go",
+        "//packages/linux/core/llvm:llvm-native",
+        "//packages/linux/lang/linkers:mold",
+        # Image / filesystem tools
+        "//packages/linux/system/filesystem/native/squashfs-tools:squashfs-tools",
     )
 
     _CONFIGURABLE_RULES = ("autotools", "meson", "cmake", "mozbuild")
@@ -317,9 +328,11 @@ def package(
                 "//packages/linux/dev-tools/build-systems/ninja:ninja",
             ])
 
-    # Gate explicit host_deps that reference seed tools.  Split into
-    # seed-provided (gated) and non-seed (always resolved) so packages
-    # with mixed deps (e.g. autoconf + intltool) work correctly.
+    # Gate explicit host_deps that reference seed tools.  In DEFAULT mode,
+    # host_bin_dir provides a hermetic PATH (from seed archive or from
+    # host-tools-exec in source_mode) — no exec_dep needed.  In stage3
+    # mode the PATH is empty (--hermetic-empty) and tools must come from
+    # per-rule exec_deps.
     raw_host_deps = build_kwargs.pop("host_deps", [])
     if type(raw_host_deps) != "Select" and raw_host_deps:
         _seed = [d for d in raw_host_deps if d in _SEED_HOST_TOOLS]

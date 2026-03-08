@@ -138,6 +138,11 @@ def _install(ctx, source):
     else:
         env["_HERMETIC_EMPTY"] = "1"
 
+    # Signal host-target builds (exec_deps on exec platform) so install
+    # scripts can skip buckos-specific post-processing (e.g. interp padding).
+    if not tc.sysroot:
+        env["BUCKOS_HOST_BUILD"] = "1"
+
 
     # Inject dep environment (CFLAGS, LDFLAGS, PKG_CONFIG_PATH)
     dep_env = _dep_env_args(ctx)

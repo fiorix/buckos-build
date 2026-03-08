@@ -156,6 +156,11 @@ echo "Version: $($OUT/usr/bin/rustc --version 2>/dev/null || echo 'installed')"
 
 # Patch interp in any LLVM LLD tools that were linked by LLD internally
 # (not by our GCC), so they have the padded interp for unpack rewriting.
+# Skip when building for the host target (exec_dep) — host binaries must
+# keep their standard interp to be directly executable.
+if [ "${BUCKOS_HOST_BUILD:-}" = "1" ]; then
+    echo "Host target build — skipping interp patching"
+else
 python3 - "$OUT" << 'PYEOF'
 import struct, os, sys, glob
 out = sys.argv[1]
@@ -210,5 +215,6 @@ for root, _, files in os.walk(out):
             break
 print(f"Patched interp in {patched} binaries")
 PYEOF
+fi
 """,
 )

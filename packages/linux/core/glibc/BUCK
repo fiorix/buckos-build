@@ -123,6 +123,11 @@ fi
 # --dynamic-linker=/usr/lib64/ld-linux-x86-64.so.2, overriding our GCC
 # specs.  Pad the interp so the unpack step can rewrite it to the actual
 # bundled ld-linux path.
+# Skip when building for the host target (exec_dep) — host binaries must
+# keep their standard interp to be directly executable.
+if [ "${BUCKOS_HOST_BUILD:-}" = "1" ]; then
+    echo "Host target build — skipping interp patching"
+else
 python3 - "$OUT" << 'PYEOF'
 import struct, os, sys
 out = sys.argv[1]
@@ -177,6 +182,7 @@ for root, _, files in os.walk(out):
             break
 print(f"Patched interp in {patched} glibc binaries")
 PYEOF
+fi
 
 echo "glibc 2.42 built from source"
 ls -la "$OUT/usr/lib64/"*.so* 2>/dev/null | head -5 || true
