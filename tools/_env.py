@@ -375,7 +375,11 @@ def rewrite_shebangs(root, env):
     path_lookup = _build_path_lookup(env)
     if not path_lookup:
         return
-    for dirpath, _dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Skip cargo vendor directories — modifying vendored sources
+        # breaks .cargo-checksum.json integrity checks.
+        if "vendor" in dirnames:
+            dirnames.remove("vendor")
         for fname in filenames:
             path = os.path.join(dirpath, fname)
             if os.path.islink(path):
