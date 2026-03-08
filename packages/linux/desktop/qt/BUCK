@@ -38,7 +38,7 @@ fi
 ''', """
 # Find mesa library path from CMAKE_PREFIX_PATH and inject EGL/GLESv2
 # targets so Qt can find them during configuration.
-MESA_PATH=$(echo "$CMAKE_PREFIX_PATH" | tr ';' '\\n' | grep mesa)
+MESA_PATH=$(echo "$CMAKE_PREFIX_PATH" | tr ';' '\\n' | grep mesa || true)
 if [ -n "$MESA_PATH" ]; then
     EGL_LIB="$MESA_PATH/lib64/libEGL.so"
     GLESV2_LIB="$MESA_PATH/lib64/libGLESv2.so"
