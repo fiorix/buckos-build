@@ -105,5 +105,8 @@ PYEOF""",
         "//packages/linux/lang/linkers:mold",
         "//packages/linux/lang/rust:rust",
         "//packages/linux/lang/nodejs:nodejs",
+        "//packages/linux/dev-tools/build-systems/cbindgen:cbindgen",
+        "//packages/linux/dev-tools/compilers/nasm:nasm",
+        "//packages/linux/system/libs/compression/libarchive:libarchive",
     ],
 )

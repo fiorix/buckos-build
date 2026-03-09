@@ -27,13 +27,14 @@ package(
     license = "LGPL-3.0-or-later OR GPL-3.0-or-later",
 
     pre_configure_cmds = ['''
-# Disable qdoc and linguist - they require LLVM/libclang which may have
-# incompatible C++ library (libc++ vs libstdc++) on the host system.
+# Disable qdoc - it requires LLVM/libclang which may have incompatible
+# C++ library (libc++ vs libstdc++) on the host system.
+# Linguist is kept: lrelease doesn't need clang (clang-based lupdate is
+# disabled via QT_FEATURE_clang=OFF), and KDE packages need LinguistTools.
 if [ -f "$S/qttools/src/CMakeLists.txt" ]; then
-    echo "Patching qttools to disable qdoc and linguist..."
+    echo "Patching qttools to disable qdoc..."
     sed -i 's|add_subdirectory(qdoc)|# add_subdirectory(qdoc) # Disabled - requires libclang|g' "$S/qttools/src/CMakeLists.txt"
-    sed -i 's|add_subdirectory(linguist)|# add_subdirectory(linguist) # Disabled - requires libclang|g' "$S/qttools/src/CMakeLists.txt"
-    echo "qdoc and linguist disabled in qttools"
+    echo "qdoc disabled in qttools"
 fi
 ''', """
 # Find mesa library path from CMAKE_PREFIX_PATH and inject EGL/GLESv2
