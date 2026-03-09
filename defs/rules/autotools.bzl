@@ -18,7 +18,7 @@ inputs haven't changed.
    (post_install_cmds run in the prefix dir after make install)
 """
 
-load("//defs:providers.bzl", "PackageInfo")
+load("//defs:providers.bzl", "BuildToolchainInfo", "PackageInfo")
 load("//defs/rules:_common.bzl",
      "COMMON_PACKAGE_ATTRS",
      "add_flag_file", "build_package_tsets", "collect_dep_tsets",
@@ -65,8 +65,16 @@ def _src_configure(ctx, source, cflags_file = None, ldflags_file = None,
     cmd.add("--output-dir", output.as_output())
 
     # Inject toolchain CC/CXX/AR
+    tc = ctx.attrs._toolchain[BuildToolchainInfo]
     for env_arg in toolchain_env_args(ctx):
         cmd.add("--env", env_arg)
+
+    # Hand-written configure scripts (GNU ed, lzip) ignore CC from env
+    # and only accept it as a command-line KEY=VALUE arg.  Pass --cc/--cxx
+    # so configure_helper injects them as configure args.
+    if ctx.attrs.cc_as_configure_arg:
+        cmd.add("--cc", cmd_args(tc.cc.args, delimiter = " "))
+        cmd.add("--cxx", cmd_args(tc.cxx.args, delimiter = " "))
 
     # Hermetic PATH from seed toolchain
     for arg in toolchain_path_args(ctx):
@@ -347,6 +355,7 @@ autotools_package = rule(
         "configure_prefix_deps": attrs.dict(attrs.string(), attrs.dep(), default = {}),
         "configure_script": attrs.option(attrs.string(), default = None),
         "skip_configure": attrs.bool(default = False),
+        "cc_as_configure_arg": attrs.bool(default = False),
         "build_subdir": attrs.option(attrs.string(), default = None),
         "pre_build_cmds": attrs.list(attrs.string(), default = []),
         "make_args": attrs.list(attrs.string(), default = []),

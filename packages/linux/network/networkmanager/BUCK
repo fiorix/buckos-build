@@ -74,6 +74,10 @@ package(
         "//packages/linux/system/terminal/newt:newt",
         "//packages/linux/system/terminal/slang:slang",
     ],
+    host_deps = [
+        # xsltproc needed for DBus interface XML processing
+        "//packages/linux/system/libs/data/libxslt:libxslt",
+    ],
 )
 
 # NetworkManager applet for GTK

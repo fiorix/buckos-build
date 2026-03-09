@@ -16,5 +16,8 @@ package(
         "--prefix=/usr",
         "CFLAGS=-std=gnu11 -Wall -W -O2",
     ],
+    # GNU ed's hand-written configure ignores CC from env — must be
+    # passed as a command-line arg (CC=<compiler>).
+    cc_as_configure_arg = True,
     visibility = ["PUBLIC"],
 )

@@ -33,8 +33,9 @@ package(
         "//packages/linux/system/libs/utility/libffi:libffi",
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/libs/utility/pcre2:pcre2",
-    ],
-    host_deps = [
+        # packaging is needed by gdbus-codegen (glib's code generator).
+        # Regular dep so it propagates via tset to downstream packages
+        # that invoke gdbus-codegen (libsecret, etc.).
         "//packages/linux/dev-libs/python/packaging:packaging",
     ],
 )
