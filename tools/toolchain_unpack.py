@@ -257,7 +257,19 @@ def _write_specs(gcc_libdir, ld_linux_abs, add_lib_paths=False):
     ld_dir = os.path.dirname(ld_linux_abs)
     prefix = os.path.dirname(ld_dir)  # up from lib64
 
+    # $ORIGIN-relative RPATH works for binaries installed in standard
+    # layout (bin/foo → ../lib64/).  Add absolute paths too so programs
+    # compiled in random build directories (configure test programs,
+    # kernel's fixdep, Rust build scripts) find the bundled glibc
+    # without LD_LIBRARY_PATH.
+    abs_parts = []
+    for d in ("lib64", "lib", "usr/lib64", "usr/lib"):
+        p = os.path.join(prefix, d)
+        if os.path.isdir(p):
+            abs_parts.append(os.path.abspath(p))
     rpath_str = "$ORIGIN/../lib64:$ORIGIN/../lib"
+    if abs_parts:
+        rpath_str += ":" + ":".join(abs_parts)
     startfile_prefixes = []
     if add_lib_paths:
         for d in ("lib", "lib64"):

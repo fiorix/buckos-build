@@ -103,7 +103,7 @@ jobs:
           name: seed-toolchain
           path: .
       - name: Install dependencies
-        run: sudo apt-get install -yq zstd binutils
+        run: sudo apt-get install -yq zstd binutils libelf-dev
       - name: Install buck2
         run: |
           mkdir -p "$HOME/.local/bin"
