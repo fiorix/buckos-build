@@ -140,17 +140,20 @@ def main():
             d = os.path.join(parent, inc)
             if os.path.isdir(d) and d not in _inc_parts:
                 _inc_parts.append(d)
-    # Extract sysroot from CC= make flag (e.g. CC=gcc --sysroot=/path)
+    # Extract sysroot from CC= make flag (e.g. CC=gcc --sysroot=/path).
+    # Used for C_INCLUDE_PATH/LIBRARY_PATH AND for HOSTCFLAGS/HOSTLDFLAGS
+    # to override the host-tools gcc's hardcoded multiarch search paths.
+    _sysroot = None
     for flag in args.make_flags:
         if flag.startswith("CC=") and "--sysroot=" in flag:
-            sysroot = flag.split("--sysroot=", 1)[1].split()[0]
-            sysroot = os.path.abspath(sysroot)
+            _sysroot = flag.split("--sysroot=", 1)[1].split()[0]
+            _sysroot = os.path.abspath(_sysroot)
             for inc in ("usr/include", "include"):
-                d = os.path.join(sysroot, inc)
+                d = os.path.join(_sysroot, inc)
                 if os.path.isdir(d) and d not in _inc_parts:
                     _inc_parts.append(d)
             for ld in ("usr/lib64", "usr/lib", "lib64", "lib"):
-                d = os.path.join(sysroot, ld)
+                d = os.path.join(_sysroot, ld)
                 if os.path.isdir(d) and d not in _lib_parts:
                     _lib_parts.append(d)
     if _lib_parts:
@@ -220,6 +223,13 @@ def main():
         make_cmd.append(f"KCFLAGS={args.kcflags}")
     if args.cross_compile:
         make_cmd.append(f"CROSS_COMPILE={args.cross_compile}")
+    # When a sysroot was extracted from CC=, pass it to HOSTCC via
+    # HOSTCFLAGS/HOSTLDFLAGS.  The host-tools gcc has multiarch search
+    # paths hardcoded from its build host — --sysroot redirects the
+    # entire header/library search to the seed's sysroot.
+    if _sysroot:
+        make_cmd.append(f"HOSTCFLAGS=--sysroot={_sysroot}")
+        make_cmd.append(f"HOSTLDFLAGS=--sysroot={_sysroot}")
     if cc_override:
         make_cmd.extend(cc_override)
     for flag in args.make_flags:
