@@ -405,10 +405,26 @@ def main():
                         _Stub.__qualname__ = _Stub.__name__ = name
                         _Stub.__module__ = module
                         _stub_cache[type_key] = _Stub
-                        # Register in sys.modules so pickle can find it
-                        if module not in _fake_modules:
-                            _fake_modules[module] = _types.ModuleType(module)
-                            sys.modules[module] = _fake_modules[module]
+                        # Register full module hierarchy in sys.modules
+                        # so pickle.dump can re-import the class.
+                        # e.g. for mesonbuild.backend.backends we need
+                        # mesonbuild, mesonbuild.backend (as packages),
+                        # and mesonbuild.backend.backends as modules.
+                        parts = module.split(".")
+                        for i in range(len(parts)):
+                            mod_path = ".".join(parts[: i + 1])
+                            if mod_path not in _fake_modules:
+                                mod = _types.ModuleType(mod_path)
+                                mod.__path__ = []  # mark as package
+                                _fake_modules[mod_path] = mod
+                                sys.modules[mod_path] = mod
+                            if i > 0:
+                                parent_path = ".".join(parts[:i])
+                                setattr(
+                                    _fake_modules[parent_path],
+                                    parts[i],
+                                    _fake_modules[mod_path],
+                                )
                         setattr(_fake_modules[module], name, _Stub)
                     return _stub_cache[type_key]
 

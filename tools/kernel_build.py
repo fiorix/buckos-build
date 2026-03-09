@@ -117,6 +117,27 @@ def main():
     if args.path_prepend:
         derive_lib_paths(args.path_prepend, os.environ)
 
+    # Derive LIBRARY_PATH and C_INCLUDE_PATH from hermetic bin dirs so
+    # the seed's native gcc (HOSTCC) can find seed-provided libraries
+    # like zlib and libelf when building kernel host tools (resolve_btfids).
+    # CC (the cross-compiler) has its own --sysroot and ignores these.
+    _all_bin_dirs = (args.hermetic_path or []) + (args.path_prepend or [])
+    _lib_parts, _inc_parts = [], []
+    for bin_dir in _all_bin_dirs:
+        parent = os.path.dirname(os.path.abspath(bin_dir))
+        for ld in ("usr/lib64", "usr/lib", "lib64", "lib"):
+            d = os.path.join(parent, ld)
+            if os.path.isdir(d) and d not in _lib_parts:
+                _lib_parts.append(d)
+        for inc in ("usr/include", "include"):
+            d = os.path.join(parent, inc)
+            if os.path.isdir(d) and d not in _inc_parts:
+                _inc_parts.append(d)
+    if _lib_parts:
+        os.environ["LIBRARY_PATH"] = ":".join(_lib_parts)
+    if _inc_parts:
+        os.environ["C_INCLUDE_PATH"] = ":".join(_inc_parts)
+
     os.environ.setdefault("KBUILD_BUILD_TIMESTAMP", "Thu Jan  1 00:00:00 UTC 1970")
     os.environ.setdefault("KBUILD_BUILD_USER", "buckos")
     os.environ.setdefault("KBUILD_BUILD_HOST", "buckos")

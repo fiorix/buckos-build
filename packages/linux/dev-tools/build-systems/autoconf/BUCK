@@ -138,7 +138,9 @@ WRAPPER_EOF
         find . -name 'conftest*' -delete 2>/dev/null || true
         find "$OUT" -name 'conftest*' -delete 2>/dev/null || true
     ''',
-    # No dependencies - autoconf is a bootstrap package
+    host_deps = [
+        "//packages/linux/dev-tools/documentation/help2man:help2man",
+    ],
     deps = [],
     visibility = ["PUBLIC"],
 )

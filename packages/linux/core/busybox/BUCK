@@ -38,8 +38,10 @@ CONFIG_LONG_OPTS=y
 # Static build - no shared libraries needed
 CONFIG_STATIC=y
 
-# glibc 2.42 libc.a references _Unwind_Resume from libgcc_eh
-CONFIG_EXTRA_LDLIBS="gcc_eh"
+# glibc 2.42 libc.a references _Unwind_Resume from libgcc_eh.
+# Use --whole-archive so libgcc_eh symbols are unconditionally
+# included before gcc's implicit -lc is linked.
+CONFIG_EXTRA_LDFLAGS="-Wl,--whole-archive -lgcc_eh -Wl,--no-whole-archive"
 
 # Disable problematic features
 # CONFIG_PAM is not set
