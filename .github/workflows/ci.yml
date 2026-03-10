@@ -123,7 +123,8 @@ jobs:
           sed -n '/^\[cell_aliases\]/,/^[[:space:]]*$/p' "$tmpdir/.buckconfig" >> .buckconfig.local
       - name: Tests
         run: |
-          buck2 test //tests: --exclude test-kde-iso-boot
+          targets=$(buck2 uquery 'kind(sh_test, //tests:) - set(//tests:test-kde-iso-boot)' 2>/dev/null)
+          buck2 test $targets
 
   release:
     needs: [test-setup, test-seed]
