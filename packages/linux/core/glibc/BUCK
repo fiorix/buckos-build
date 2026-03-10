@@ -191,9 +191,12 @@ ls -la "$OUT/usr/lib64/"*.so* 2>/dev/null | head -5 || true
     # Only depend on linux-headers for kernel headers.
     # NOT cross-glibc — its shared libs would cause LD_LIBRARY_PATH
     # poisoning of the cross-compiler (host binary + buckos glibc = crash).
+    # Use the packaged linux-headers, not the bootstrap stage1 target —
+    # stage1:linux-headers uses --allow-host-path (needs host make) and
+    # pulls the entire bootstrap chain into the graph.
     deps = select({
         "//platforms:is_aarch64": ["//tc/bootstrap/aarch64:linux-headers-aarch64"],
-        "DEFAULT": ["//tc/bootstrap/stage1:linux-headers"],
+        "DEFAULT": ["//packages/linux/kernel:linux-headers"],
     }),
     # gperf is needed at install time for locale charmap-kw.h generation.
     host_deps = [

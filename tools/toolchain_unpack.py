@@ -377,18 +377,29 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
 
     # Host-tools GCC: host-tools/lib64/gcc/<triple>/<ver>/specs
     # Uses host-tools ld-linux as dynamic linker.
+    # Keep --sysroot pointing to cross sysroot for header discovery
+    # (sys/types.h etc.), but also add -L flags for CRT discovery.
+    # gcc-native was built with --prefix=/usr and doesn't apply
+    # --sysroot to startfile search (not built with --with-sysroot),
+    # so CRTs (crt1.o, crti.o) need explicit -L paths.
     host_ld = os.path.join(
         toolchain_dir, "host-tools", "lib64", "ld-linux-x86-64.so.2",
     )
     if os.path.exists(host_ld):
         host_ld_abs = os.path.abspath(host_ld)
+        host_prefix = os.path.abspath(
+            os.path.join(toolchain_dir, "host-tools"),
+        )
         # Host-tools GCC may use a different triple (e.g. x86_64-pc-linux-gnu)
         pattern = os.path.join(
             toolchain_dir, "host-tools", "lib64", "gcc", "*", "*",
         )
         for gcc_libdir in sorted(_glob.glob(pattern)):
             if os.path.isdir(gcc_libdir):
-                _write_specs(gcc_libdir, host_ld_abs, sysroot=sysroot_abs)
+                _write_specs(
+                    gcc_libdir, host_ld_abs,
+                    sysroot=sysroot_abs, host_prefix=host_prefix,
+                )
                 installed += 1
 
     if installed:
@@ -396,7 +407,7 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
               file=sys.stderr)
 
 
-def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None):
+def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None, host_prefix=None):
     """Write a specs override into a GCC lib directory.
 
     Uses $ORIGIN-relative RPATH so compiled binaries find their libs
@@ -407,10 +418,10 @@ def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None):
     gcc invocations (Rust build scripts, configure tests) find CRT files
     and headers without explicit --sysroot on the command line.
 
-    Only overrides the dynamic linker and RPATH in *link — CRT files
-    (crt1.o, crti.o) are found via --sysroot.  Overriding
-    startfile_prefix_spec would break the linker's ability to find
-    libc.so.6 through the sysroot-mapped library search paths.
+    When host_prefix is provided (for gcc-native in host-tools), adds
+    -L flags for CRT discovery instead of --sysroot.  gcc-native was
+    built with --prefix=/usr and doesn't honour --sysroot for startfile
+    search (not built with --with-sysroot).
     """
     # ld-linux is at <prefix>/lib64/ld-linux-x86-64.so.2.
     ld_dir = os.path.dirname(ld_linux_abs)
@@ -452,12 +463,26 @@ def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None):
         "\n"
     )
 
-    specs_content += (
-        "*link:\n"
-        f"+ %{{!shared:%{{!static:--dynamic-linker {ld_linux_abs}"
-        f" -rpath {rpath_str}}}}}\n"
-        "\n"
+    # Build the *link spec: dynamic linker + RPATH + optional -L for CRTs.
+    link_extra = (
+        f"%{{!shared:%{{!static:--dynamic-linker {ld_linux_abs}"
+        f" -rpath {rpath_str}}}}}"
     )
+    # For host-tools gcc-native: add -L flags so ld finds CRT files
+    # (crt1.o, crti.o, crtn.o) in the host-tools prefix.  Without
+    # --sysroot, gcc-native's built-in startfile search only covers
+    # /usr/lib which doesn't exist on minimal hosts.
+    if host_prefix:
+        lib_flags = ""
+        for d in ("lib", "lib64", "usr/lib", "usr/lib64"):
+            p = os.path.join(host_prefix, d)
+            if os.path.isdir(p):
+                lib_flags += f" -L{os.path.abspath(p)}"
+        if lib_flags:
+            link_extra += lib_flags
+
+    specs_content += f"*link:\n+ {link_extra}\n\n"
+
     specs_path = os.path.join(gcc_libdir, "specs")
     with open(specs_path, "w") as f:
         f.write(specs_content)
@@ -476,6 +501,30 @@ def _pipe_extract(producer_cmd, consumer_cmd):
     consumer.communicate()
     rc = consumer.returncode or producer.wait()
     return type("R", (), {"returncode": rc})()
+
+
+def _symlink_host_crts(toolchain_dir):
+    """Symlink glibc CRT objects into host-tools/lib64/ for gcc-native.
+
+    gcc-native (x86_64-pc-linux-gnu) searches lib64/ for CRT startfiles
+    but glibc installs them in lib/.  GCC resolves startfiles before -L
+    flags take effect, so the files must be in a standard search dir.
+    """
+    src_dir = os.path.join(toolchain_dir, "host-tools", "lib")
+    dst_dir = os.path.join(toolchain_dir, "host-tools", "lib64")
+    if not os.path.isdir(src_dir) or not os.path.isdir(dst_dir):
+        return
+    linked = 0
+    for name in os.listdir(src_dir):
+        if name.startswith("crt") and name.endswith(".o"):
+            src = os.path.join(src_dir, name)
+            dst = os.path.join(dst_dir, name)
+            if not os.path.exists(dst):
+                os.symlink(os.path.relpath(src, dst_dir), dst)
+                linked += 1
+    if linked:
+        print(f"  symlinked {linked} CRT objects into host-tools/lib64/",
+              file=sys.stderr)
 
 
 def main():
@@ -590,6 +639,12 @@ def main():
     # Install GCC specs so cross-compiled programs use the sysroot's
     # ld-linux instead of the host's (avoids glibc version mismatch).
     _install_gcc_specs(output)
+
+    # Symlink CRT objects into host-tools/lib64/ so gcc-native can find
+    # them.  gcc-native was built with --prefix=/usr and searches lib64/
+    # but CRT files from glibc are installed in lib/.  GCC resolves CRT
+    # startfiles before -L flags take effect, so symlinks are needed.
+    _symlink_host_crts(output)
 
     # Read metadata
     meta_path = os.path.join(output, "metadata.json")
