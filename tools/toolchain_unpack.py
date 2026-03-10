@@ -107,12 +107,6 @@ def _patch_elf_interpreter(path, new_interp):
         if old_interp == new_interp:
             return False  # already correct
 
-        # Only rewrite interpreters with padding (leading ///) from build time.
-        # Non-padded interpreters belong to host-built binaries that should
-        # use the system ld-linux.
-        if not old_interp.startswith("///"):
-            return False
-
         new_bytes = new_interp.encode("ascii") + b"\x00"
 
         if len(new_bytes) <= p_filesz:
@@ -179,11 +173,103 @@ def _rewrite_interpreters(toolchain_dir):
                             continue
                 except (PermissionError, OSError):
                     continue
+                # Skip shared libraries — they have PT_INTERP (glibc's
+                # "executable libc" feature) but rewriting it corrupts
+                # the library.  Only rewrite actual executables.
+                if ".so." in name or name.endswith(".so"):
+                    continue
                 if _patch_elf_interpreter(fpath, new_interp):
                     patched += 1
 
     if patched:
         print(f"  patched ELF interpreter in {patched} binaries", file=sys.stderr)
+
+
+def _inject_missing_rpath(toolchain_dir):
+    """Inject $ORIGIN RPATH into host-tools binaries that lack one.
+
+    Some packages (e.g. lzip) use non-standard build systems that
+    bypass GCC specs, producing binaries without RPATH.  Without RPATH
+    they fall back to host libc, breaking hermeticity.  Use the bundled
+    patchelf to inject the standard $ORIGIN/../lib64:$ORIGIN/../lib RPATH.
+    """
+    patchelf = os.path.join(toolchain_dir, "host-tools", "bin", "patchelf")
+    if not os.path.isfile(patchelf):
+        return
+
+    host_tools = os.path.join(toolchain_dir, "host-tools")
+    if not os.path.isdir(host_tools):
+        return
+
+    # Set up env so patchelf can run (it needs the bundled ld-linux)
+    env = clean_env()
+    ld_linux = os.path.join(host_tools, "lib64", "ld-linux-x86-64.so.2")
+    if os.path.exists(ld_linux):
+        env["LD_LIBRARY_PATH"] = os.path.abspath(os.path.dirname(ld_linux))
+
+    rpath = "$ORIGIN/../lib64:$ORIGIN/../lib"
+    patched = 0
+
+    for dirpath, _, filenames in os.walk(host_tools):
+        for name in filenames:
+            fpath = os.path.join(dirpath, name)
+            if os.path.islink(fpath) or not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, "rb") as f:
+                    data = f.read(64)
+                if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+                    continue
+                # Skip shared libraries (e.g. libc.so.6 has PT_INTERP
+                # but patchelf corrupts it)
+                if ".so." in name or name.endswith(".so"):
+                    continue
+
+                # Check for PT_INTERP (executable, not shared lib) and
+                # absence of DT_RPATH/DT_RUNPATH
+                with open(fpath, "rb") as f:
+                    full = f.read()
+                e_phoff = struct.unpack_from("<Q", full, 32)[0]
+                e_phentsize = struct.unpack_from("<H", full, 54)[0]
+                e_phnum = struct.unpack_from("<H", full, 56)[0]
+
+                has_interp = False
+                has_rpath = False
+                for i in range(e_phnum):
+                    off = e_phoff + i * e_phentsize
+                    p_type = struct.unpack_from("<I", full, off)[0]
+                    if p_type == 3:  # PT_INTERP
+                        has_interp = True
+                    if p_type == 2:  # PT_DYNAMIC
+                        p_offset = struct.unpack_from("<Q", full, off + 8)[0]
+                        p_filesz = struct.unpack_from("<Q", full, off + 32)[0]
+                        for j in range(0, p_filesz, 16):
+                            d_tag = struct.unpack_from("<q", full, p_offset + j)[0]
+                            if d_tag in (15, 29):  # DT_RPATH, DT_RUNPATH
+                                has_rpath = True
+                            if d_tag == 0:
+                                break
+
+                if not has_interp or has_rpath:
+                    continue
+
+                # Make writable, inject RPATH, restore permissions
+                orig_mode = os.stat(fpath).st_mode
+                os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+                result = subprocess.run(
+                    [patchelf, "--set-rpath", rpath, fpath],
+                    capture_output=True, env=env, timeout=30,
+                )
+                os.chmod(fpath, orig_mode)
+                if result.returncode == 0:
+                    patched += 1
+            except (PermissionError, OSError, struct.error,
+                    subprocess.TimeoutExpired):
+                pass
+
+    if patched:
+        print(f"  injected RPATH into {patched} host-tools binaries",
+              file=sys.stderr)
 
 
 def _rewrite_script_shebangs(toolchain_dir):
@@ -352,6 +438,20 @@ def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None):
     if sysroot:
         specs_content += f"*self_spec:\n+ --sysroot={sysroot}\n\n"
 
+    # Override *libgcc to ensure -lgcc_eh is linked for static builds.
+    # GCC's built-in spec claims %{static:-lgcc -lgcc_eh} but the
+    # cross-compiler drops -lgcc_eh from the actual collect2 invocation.
+    # Providing the identical spec text via a specs file forces GCC to
+    # use the external version which correctly includes -lgcc_eh.
+    specs_content += (
+        "*libgcc:\n"
+        "%{static|static-libgcc|static-pie:-lgcc -lgcc_eh}"
+        "%{!static:%{!static-libgcc:%{!static-pie:"
+        "%{!shared-libgcc:-lgcc --push-state --as-needed -lgcc_s --pop-state}"
+        "%{shared-libgcc:-lgcc_s%{!shared: -lgcc}}}}}\n"
+        "\n"
+    )
+
     specs_content += (
         "*link:\n"
         f"+ %{{!shared:%{{!static:--dynamic-linker {ld_linux_abs}"
@@ -480,6 +580,9 @@ def main():
 
     # Patch ELF interpreters to use bundled ld-linux
     _rewrite_interpreters(output)
+
+    # Inject RPATH into host-tools binaries that lack one (e.g. lzip)
+    _inject_missing_rpath(output)
 
     # Fix script shebangs that point to build-time paths
     _rewrite_script_shebangs(output)
