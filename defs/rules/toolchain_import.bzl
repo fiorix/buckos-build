@@ -34,13 +34,20 @@ def _toolchain_import_impl(ctx):
     if ctx.attrs.exec_mode:
         # Exec mode: native compiler from host-tools for building
         # exec deps (tools that run on the host during builds).
-        # Uses gcc-native from host-tools/bin, no sysroot.
+        # Uses gcc-native from host-tools/bin with the cross-toolchain's
+        # sysroot.  The sysroot is needed because gcc-native has
+        # --prefix=/usr baked in and would otherwise find incompatible
+        # host headers (e.g. Ubuntu multiarch glibc) at /usr/include.
+        sysroot = unpacked.project("tools/" + triple + "/sys-root")
         cc_args = cmd_args(host_bin.project("gcc"))
+        cc_args.add(cmd_args("--sysroot=", sysroot, delimiter = ""))
         cxx_args = cmd_args(host_bin.project("g++"))
+        cxx_args.add(cmd_args("--sysroot=", sysroot, delimiter = ""))
         ar = host_bin.project("ar")
         strip_bin = host_bin.project("strip")
-        sysroot = None
+        gcc_lib_dir = unpacked.project("tools/" + triple + "/lib64")
         ldflags = list(ctx.attrs.extra_ldflags)
+        ldflags.append(cmd_args("-Wl,-rpath-link,", gcc_lib_dir, delimiter = ""))
     else:
         # Cross mode: cross-compiler for building target packages.
         sysroot = unpacked.project("tools/" + triple + "/sys-root")

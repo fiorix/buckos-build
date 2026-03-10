@@ -39,11 +39,16 @@ def _kernel_config_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd.add("--fragment", frag)
 
     # Inject CC from toolchain so kconfig probes use the right compiler.
-    # HOSTCC is left unset — the kernel defaults to system cc, which is
-    # needed because host tools (fixdep, etc.) must run on the build
-    # machine, not target buckos with its RPATH placeholder.
     tc = ctx.attrs._toolchain[BuildToolchainInfo]
     cmd.add("--cc", cmd_args(tc.cc.args, delimiter = " "))
+
+    # HOSTCC: native gcc from hermetic PATH for host tools (fixdep, etc.).
+    # Must have --sysroot to avoid picking up incompatible host headers
+    # (e.g. Ubuntu multiarch glibc at /usr/include on CI runners).
+    if tc.host_bin_dir and tc.sysroot:
+        hostcc_args = cmd_args(tc.host_bin_dir.project("gcc"))
+        hostcc_args.add(cmd_args("--sysroot=", tc.sysroot, delimiter = ""))
+        cmd.add("--hostcc", cmd_args(hostcc_args, delimiter = " "))
 
     # Hermetic PATH from toolchain
     for arg in toolchain_path_args(ctx):
@@ -167,6 +172,15 @@ def _kernel_build_impl(ctx: AnalysisContext) -> list[Provider]:
     # uses the buckos compiler instead of whatever is on host PATH.
     for env_arg in toolchain_env_args(ctx):
         cmd.add("--make-flag", env_arg)
+
+    # HOSTCC: native gcc from hermetic PATH for host tools (fixdep,
+    # resolve_btfids, etc.).  Must have --sysroot to avoid picking up
+    # incompatible host headers (e.g. Ubuntu multiarch glibc).
+    tc = ctx.attrs._toolchain[BuildToolchainInfo]
+    if tc.host_bin_dir and tc.sysroot:
+        hostcc_args = cmd_args(tc.host_bin_dir.project("gcc"))
+        hostcc_args.add(cmd_args("--sysroot=", tc.sysroot, delimiter = ""))
+        cmd.add("--make-flag", cmd_args("HOSTCC=", cmd_args(hostcc_args, delimiter = " "), delimiter = ""))
 
     # Hermetic PATH from toolchain
     for arg in toolchain_path_args(ctx):

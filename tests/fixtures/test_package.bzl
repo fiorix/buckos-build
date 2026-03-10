@@ -21,7 +21,7 @@ set -e
 OUT="$1"; shift
 SRC="$1"; shift
 mkdir -p "$OUT/usr/bin"
-"$CC" "$@" -o "$OUT/usr/bin/{binary}" "$SRC"
+$CC "$@" -o "$OUT/usr/bin/{binary}" "$SRC"
 """.format(binary = ctx.attrs.binary_name),
         is_executable = True,
     )
@@ -83,7 +83,7 @@ set -e
 OUT="$1"; shift
 SRC="$1"; shift
 mkdir -p "$OUT/usr/lib64"
-"$CC" -shared -fPIC "$@" -o "$OUT/usr/lib64/{lib}" "$SRC"
+$CC -shared -fPIC "$@" -o "$OUT/usr/lib64/{lib}" "$SRC"
 """.format(lib = ctx.attrs.lib_name),
         is_executable = True,
     )
