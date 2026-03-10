@@ -38,6 +38,10 @@ HOST_TOOL_PACKAGES = [
     # Native C/C++ compiler (needed by Kconfig, kernel builds, etc.)
     "//packages/linux/lang/gcc:gcc-native",
 
+    # Kernel UAPI headers -- glibc headers reference linux/*.h and asm/*.h.
+    # Uses bootstrap rule (no TOOLCHAIN_ATTRS) to avoid circular dep with seed.
+    "//tc/bootstrap/stage1:linux-headers",
+
     # C library + kernel headers -- gcc-native needs glibc CRT files
     # (Scrt1.o, crti.o, crtn.o), headers (sys/types.h, stdio.h), and
     # shared libs to compile and link host programs.

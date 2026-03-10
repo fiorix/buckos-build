@@ -137,11 +137,10 @@ def main():
             d = os.path.join(parent, inc)
             if os.path.isdir(d) and d not in _inc_parts:
                 _inc_parts.append(d)
-    # Note: sysroot paths are intentionally NOT added to
-    # C_INCLUDE_PATH/LIBRARY_PATH.  HOSTCC gets all headers from
-    # host-tools (glibc, zlib, elfutils via C_INCLUDE_PATH above).
-    # Adding sysroot glibc alongside host gcc's include-fixed causes
-    # __time64_t type mismatches.
+    # Note: cross-toolchain sysroot paths are intentionally NOT added
+    # here.  HOSTCC gets all headers from host-tools (glibc, linux-headers,
+    # zlib, elfutils) via C_INCLUDE_PATH above.  The cross-compiler (CC)
+    # has its own --sysroot and ignores these env vars.
     if _lib_parts:
         os.environ["LIBRARY_PATH"] = ":".join(_lib_parts)
     if _inc_parts:
@@ -209,18 +208,11 @@ def main():
         make_cmd.append(f"KCFLAGS={args.kcflags}")
     if args.cross_compile:
         make_cmd.append(f"CROSS_COMPILE={args.cross_compile}")
-    # In hermetic mode, set HOSTCC with --sysroot pointing to the
-    # host-tools root so the seed's gcc-native finds seed headers/libs
-    # instead of falling through to the host system's /usr/include/.
-    # The seed's gcc-native has --disable-fixincludes, so there's no
-    # include-fixed conflict with --sysroot (unlike host system gcc).
-    if args.hermetic_path:
-        for bin_dir in args.hermetic_path:
-            root = os.path.dirname(os.path.abspath(bin_dir))
-            if os.path.isdir(os.path.join(root, "usr", "include")):
-                make_cmd.append(f"HOSTCC=gcc --sysroot={root}")
-                make_cmd.append(f"HOSTCXX=g++ --sysroot={root}")
-                break
+    # HOSTCC headers/libs come from C_INCLUDE_PATH and LIBRARY_PATH
+    # (set above from hermetic PATH bin dirs).  The seed's gcc-native
+    # has --disable-fixincludes so there's no include-fixed conflict.
+    # All HOSTCC deps (glibc, linux-headers, zlib, elfutils) must be
+    # in tc/bootstrap/host-tools/packages.bzl.
     if cc_override:
         make_cmd.extend(cc_override)
     for flag in args.make_flags:
