@@ -290,7 +290,7 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
         )
         for gcc_libdir in sorted(_glob.glob(pattern)):
             if os.path.isdir(gcc_libdir):
-                _write_specs(gcc_libdir, host_ld_abs, add_lib_paths=True)
+                _write_specs(gcc_libdir, host_ld_abs)
                 installed += 1
 
     if installed:
@@ -298,17 +298,18 @@ def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
               file=sys.stderr)
 
 
-def _write_specs(gcc_libdir, ld_linux_abs, add_lib_paths=False):
+def _write_specs(gcc_libdir, ld_linux_abs):
     """Write a specs override into a GCC lib directory.
 
     Uses $ORIGIN-relative RPATH so compiled binaries find their libs
     at runtime without LD_LIBRARY_PATH.  Works in both seed layout
     (bin/foo → ../lib64/) and rootfs (/usr/bin/foo → /usr/lib64/).
 
-    When add_lib_paths is True, also adds -L flags so the linker can
-    find CRT startup files (crt1.o, crti.o) in the bundled lib dirs.
-    Only used for host-tools GCC — the cross-compiler finds CRT via
-    its sysroot.
+    Only overrides the dynamic linker and RPATH — CRT files (crt1.o,
+    crti.o) are found via --sysroot for both the cross-compiler and
+    host-tools GCC.  Overriding startfile_prefix_spec would break
+    the linker's ability to find libc.so.6 through the sysroot-mapped
+    library search paths.
     """
     # ld-linux is at <prefix>/lib64/ld-linux-x86-64.so.2.
     ld_dir = os.path.dirname(ld_linux_abs)
@@ -327,13 +328,6 @@ def _write_specs(gcc_libdir, ld_linux_abs, add_lib_paths=False):
     rpath_str = "$ORIGIN/../lib64:$ORIGIN/../lib"
     if abs_parts:
         rpath_str += ":" + ":".join(abs_parts)
-    startfile_prefixes = []
-    if add_lib_paths:
-        for d in ("lib", "lib64"):
-            p = os.path.join(prefix, d)
-            if os.path.isdir(p):
-                # Trailing slash is required for GCC startfile prefix
-                startfile_prefixes.append(os.path.abspath(p) + "/")
 
     specs_content = (
         "*link:\n"
@@ -341,24 +335,6 @@ def _write_specs(gcc_libdir, ld_linux_abs, add_lib_paths=False):
         f" -rpath {rpath_str}}}}}\n"
         "\n"
     )
-    if startfile_prefixes:
-        # Override startfile_prefix_spec so GCC finds CRT files
-        # (crt1.o, crti.o, crtn.o) in the bundled lib dirs.
-        specs_content += (
-            "*startfile_prefix_spec:\n"
-            + " ".join(startfile_prefixes) + "\n"
-            "\n"
-        )
-        # Detect multiarch include paths (Ubuntu/Debian put arch-specific
-        # headers in /usr/include/<multiarch-tuple>/ instead of /usr/include/).
-        # GCC built on non-multiarch systems (Fedora) doesn't know about these.
-        multiarch_inc = "/usr/include/x86_64-linux-gnu"
-        if os.path.isdir(multiarch_inc):
-            specs_content += (
-                "*cpp:\n"
-                f"+ -isystem {multiarch_inc}\n"
-                "\n"
-            )
     specs_path = os.path.join(gcc_libdir, "specs")
     with open(specs_path, "w") as f:
         f.write(specs_content)
