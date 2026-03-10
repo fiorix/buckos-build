@@ -486,6 +486,12 @@ def main():
         if _lib_dirs:
             _existing = os.environ.get("LD_LIBRARY_PATH", "")
             os.environ["LD_LIBRARY_PATH"] = ":".join(_lib_dirs) + (":" + _existing if _existing else "")
+        # glibc iconv needs GCONV_PATH for charset conversion (mformat)
+        for _bp in resolved:
+            _parent = os.path.dirname(_bp)
+            _gconv = os.path.join(_parent, "lib", "gconv")
+            if os.path.isdir(_gconv) and "GCONV_PATH" not in os.environ:
+                os.environ["GCONV_PATH"] = _gconv
         _py_paths = []
         for _bp in resolved:
             _parent = os.path.dirname(_bp)
