@@ -273,60 +273,86 @@ def _inject_missing_rpath(toolchain_dir):
 
 
 def _rewrite_script_shebangs(toolchain_dir):
-    """Rewrite script shebangs that point to build-time buck-out paths.
+    """Rewrite absolute shebangs in host-tools to use seed interpreters.
 
-    Scripts like libtoolize.real have shebangs pointing to the build-time
-    bash (e.g. #!/.../buck-out/.../bash).  Rewrite them to use the
-    host-tools shell so the seed is relocatable.
+    Scripts may have shebangs pointing to build-time buck-out paths
+    (e.g. #!/.../buck-out/.../bash) or absolute system paths
+    (e.g. #!/usr/bin/perl).  Both break hermeticity — the seed must
+    not depend on the host having any particular interpreter installed.
+
+    Rewrites all absolute shebangs to the corresponding interpreter in
+    host-tools/bin/ so the seed is self-contained and relocatable.
     """
     host_bin = os.path.join(toolchain_dir, "host-tools", "bin")
-    host_sh = os.path.join(host_bin, "sh")
-    host_bash = os.path.join(host_bin, "bash")
-    # Pick the best available shell
-    if os.path.isfile(host_bash):
-        new_shebang = os.path.abspath(host_bash)
-    elif os.path.isfile(host_sh):
-        new_shebang = os.path.abspath(host_sh)
-    else:
+    if not os.path.isdir(host_bin):
         return
 
+    # Build a map of available interpreters in host-tools/bin
+    available = {}
+    for name in os.listdir(host_bin):
+        fpath = os.path.join(host_bin, name)
+        if os.path.isfile(fpath) and not os.path.islink(fpath):
+            available[name] = os.path.abspath(fpath)
+
     patched = 0
-    for subdir in ("host-tools",):
-        root = os.path.join(toolchain_dir, subdir)
-        if not os.path.isdir(root):
-            continue
-        for dirpath, _, filenames in os.walk(root):
-            for name in filenames:
-                fpath = os.path.join(dirpath, name)
-                if os.path.islink(fpath) or not os.path.isfile(fpath):
-                    continue
-                try:
-                    with open(fpath, "rb") as f:
-                        first = f.read(2)
-                        if first != b"#!":
-                            continue
-                        line = first + f.readline()
-                    shebang = line.decode("ascii", errors="replace").strip()
-                    interp = shebang[2:].strip().split()[0]
-                    # Only rewrite shebangs that contain buck-out paths
-                    if "buck-out/" not in interp:
+    root = os.path.join(toolchain_dir, "host-tools")
+    if not os.path.isdir(root):
+        return
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            fpath = os.path.join(dirpath, name)
+            if os.path.islink(fpath) or not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, "rb") as f:
+                    first = f.read(2)
+                    if first != b"#!":
                         continue
-                    with open(fpath, "rb") as f:
-                        content = f.read()
-                    old_line = line.rstrip(b"\n")
-                    new_line = ("#!" + new_shebang).encode("ascii")
-                    content = content.replace(old_line, new_line, 1)
-                    orig_mode = os.stat(fpath).st_mode
-                    os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR)
-                    with open(fpath, "wb") as f:
-                        f.write(content)
-                    os.chmod(fpath, orig_mode)
-                    patched += 1
-                except (PermissionError, OSError, UnicodeDecodeError):
-                    pass
+                    line = first + f.readline()
+                shebang = line.decode("ascii", errors="replace").strip()
+                rest = shebang[2:].strip()
+                parts = rest.split(None, 1)
+                if not parts:
+                    continue
+                interp_path = parts[0]
+                interp_basename = os.path.basename(interp_path)
+
+                # Skip shebangs already pointing into host-tools
+                if os.path.abspath(host_bin) in os.path.abspath(interp_path):
+                    continue
+
+                # Find matching interpreter in host-tools/bin
+                replacement = available.get(interp_basename)
+                if not replacement:
+                    # Try common aliases (e.g. perl5 -> perl)
+                    for candidate in available:
+                        if interp_basename.startswith(candidate):
+                            replacement = available[candidate]
+                            break
+                if not replacement:
+                    continue
+
+                # Preserve arguments after interpreter path
+                args_suffix = b" " + parts[1].encode("ascii") if len(parts) > 1 else b""
+                new_line = b"#!" + replacement.encode("ascii") + args_suffix + b"\n"
+                with open(fpath, "rb") as f:
+                    content = f.read()
+                old_end = content.find(b"\n")
+                if old_end < 0:
+                    continue
+                new_content = new_line + content[old_end + 1:]
+                orig_mode = os.stat(fpath).st_mode
+                os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR)
+                with open(fpath, "wb") as f:
+                    f.write(new_content)
+                os.chmod(fpath, orig_mode)
+                patched += 1
+            except (PermissionError, OSError, UnicodeDecodeError):
+                pass
 
     if patched:
-        print(f"  rewrote shebangs in {patched} scripts", file=sys.stderr)
+        print(f"  rewrote shebangs in {patched} host-tools scripts",
+              file=sys.stderr)
 
 
 def _install_gcc_specs(toolchain_dir, target_triple="x86_64-buckos-linux-gnu"):
