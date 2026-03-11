@@ -195,7 +195,7 @@ ls -la "$OUT/usr/lib64/"*.so* 2>/dev/null | head -5 || true
     # stage1:linux-headers uses --allow-host-path (needs host make) and
     # pulls the entire bootstrap chain into the graph.
     deps = select({
-        "//platforms:is_aarch64": ["//tc/bootstrap/aarch64:linux-headers-aarch64"],
+        "//platforms:is_aarch64": ["//tc/bootstrap/aarch64:cross-linux-headers-aarch64"],
         "DEFAULT": ["//packages/linux/kernel:linux-headers"],
     }),
     # gperf is needed at install time for locale charmap-kw.h generation.
