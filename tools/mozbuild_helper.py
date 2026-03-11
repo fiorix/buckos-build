@@ -368,8 +368,10 @@ def phase_configure(args):
     _write_mozconfig(os.path.join(src_dir, "mozconfig"), args.mozconfig_options, _dep_dirs)
 
     # Run configure
-    _run([sys.executable if shutil.which("python3") is None else "python3",
-          "./mach", "configure"], cwd=src_dir, env=env)
+    # Always use "python3" (resolved via hermetic PATH in the subprocess
+    # env).  Never fall back to sys.executable — that's the host Python
+    # running the helper, which bypasses the hermetic PATH.
+    _run(["python3", "./mach", "configure"], cwd=src_dir, env=env)
 
     # Replace absolute project root with portable placeholder before
     # caching — makes the output identical regardless of host.
@@ -537,12 +539,41 @@ def phase_install(args):
     _run(["python3", "./mach", "install"], cwd=src_dir, env=env)
 
 
+def phase_full(args):
+    """Full build: configure + build + install in a single action.
+
+    Running all phases together eliminates cross-action path mismatches.
+    Each Buck2 action gets its own scratch directory, so mach's
+    per-source-path virtualenv hashing produces different srcdirs/src-HASH
+    entries in each action.  config.status records the virtualenv path
+    from configure, and when build runs in a different action the old
+    path doesn't exist — triggering FileNotFoundError on backend regen.
+    """
+    src_dir = _setup_writable_source(args.source_dir, args.work_dir)
+
+    pkg_config_bin = _setup_pkg_config_wrapper(
+        os.path.join(args.work_dir, "bin"))
+
+    env = _common_env(args, src_dir, pkg_config_bin)
+
+    _dep_dirs = [_resolve(d) for d in args.dep_base_dirs.split(":") if d] if args.dep_base_dirs else []
+    _write_mozconfig(os.path.join(src_dir, "mozconfig"), args.mozconfig_options, _dep_dirs)
+
+    _run(["python3", "./mach", "configure"], cwd=src_dir, env=env)
+    _run(["python3", "./mach", "build"], cwd=src_dir, env=env)
+
+    output = _resolve(args.output_dir)
+    os.makedirs(output, exist_ok=True)
+    env["DESTDIR"] = output
+    _run(["python3", "./mach", "install"], cwd=src_dir, env=env)
+
+
 def main():
     _host_path = os.environ.get("PATH", "")
 
     parser = argparse.ArgumentParser(description="Mozilla/mach build helper")
     parser.add_argument("--phase", required=True,
-                        choices=["configure", "rust-deps", "build", "install"],
+                        choices=["configure", "rust-deps", "build", "install", "full"],
                         help="Build phase to execute")
     parser.add_argument("--source-dir", required=True,
                         help="Source directory")
@@ -599,6 +630,7 @@ def main():
         "rust-deps": phase_rust_deps,
         "build": phase_build,
         "install": phase_install,
+        "full": phase_full,
     }
 
     phases[args.phase](args)
