@@ -11,8 +11,6 @@ package(
     name = "busybox-static",
     build_rule = "binary",
     version = "1.36.1",
-    url = "https://github.com/mirror/busybox/archive/refs/tags/1_36_1.tar.gz",
-    sha256 = "ea5494846c51d946e5e801d1c099b438f683af8147e0be24ca4001073143110f",
     source = ":busybox-src",
     description = "Static busybox for initramfs with all essential applets",
     homepage = "https://busybox.net/",

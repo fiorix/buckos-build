@@ -131,9 +131,8 @@ package(
 package(
     build_rule = "autotools",
     name = "qemu-guest-agent",
-    url = "https://download.qemu.org/qemu-9.1.0.tar.xz",
-    sha256 = "816b7022a8ba7c2ac30e2e0cf973e826f6bcc8505339603212c5ede8e94d7834",
     version = "9.1.0",
+    source = ":qemu-src",
     description = "QEMU Guest Agent for improved host-guest communication",
     homepage = "https://www.qemu.org/",
     license = "GPL-2.0",
@@ -158,9 +157,8 @@ package(
 package(
     build_rule = "autotools",
     name = "qemu-user",
-    url = "https://download.qemu.org/qemu-9.1.0.tar.xz",
-    sha256 = "816b7022a8ba7c2ac30e2e0cf973e826f6bcc8505339603212c5ede8e94d7834",
     version = "9.1.0",
+    source = ":qemu-src",
     description = "QEMU user-space emulation for running foreign binaries",
     homepage = "https://www.qemu.org/",
     license = "GPL-2.0",
@@ -189,9 +187,8 @@ package(
 package(
     build_rule = "autotools",
     name = "qemu-img",
-    url = "https://download.qemu.org/qemu-9.1.0.tar.xz",
-    sha256 = "816b7022a8ba7c2ac30e2e0cf973e826f6bcc8505339603212c5ede8e94d7834",
     version = "9.1.0",
+    source = ":qemu-src",
     description = "QEMU disk image utility (qemu-img, qemu-nbd)",
     homepage = "https://www.qemu.org/",
     license = "GPL-2.0",

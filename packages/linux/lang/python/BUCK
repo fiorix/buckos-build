@@ -53,7 +53,7 @@ package(
         "//packages/linux/system/libs/utility/libffi:libffi",
         # ncurses, openssl, sqlite unconditional — _curses, _ssl, _sqlite3
         # modules needed by downstream packages (Firefox via mach/glean).
-        # USE-gated deps don't resolve in stage3 builds (platform config
+        # USE-gated deps don't resolve in bootstrap builds (platform config
         # lacks USE constraints).
         "//packages/linux/system/terminal/ncurses:ncurses",
         "//packages/linux/system/libs/crypto/openssl:openssl",
@@ -81,8 +81,7 @@ package(
     build_rule = "autotools",
     name = "python-host",
     version = "3.12.1",
-    url = "https://www.python.org/ftp/python/3.12.1/Python-3.12.1.tar.xz",
-    sha256 = "8dfb8f426fcd226657f9e2bd5f1e96e53264965176fa17d32658e873591aeb21",
+    source = ":python-src",
     description = "Minimal Python for build-time code generation",
     homepage = "https://www.python.org/",
     license = "PSF-2.0",

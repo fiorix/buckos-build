@@ -21,7 +21,7 @@ iso_image(
     name = "test-minimal-iso",
     kernel = ":test-kernel",
     initramfs = "//packages/linux/system:buckos-initramfs",
-    boot_mode = "hybrid",
+    boot_mode = "efi",
     volume_label = "BUCKOS",
     kernel_args = "quiet rdinit=/init",
     visibility = ["PUBLIC"],

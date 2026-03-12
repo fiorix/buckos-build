@@ -19,6 +19,9 @@ package(
         "--enable-editline=yes",
         "--enable-blkid=yes",
     ],
+    # Clear MAKEFLAGS to avoid jobserver auth mismatch between
+    # buckos make (FIFO-based, 4.4+) and host gmake (pipe-based).
+    env = {"MAKEFLAGS": ""},
     # xfsprogs' make install triggers relinking with broken cross-subdir
     # dependencies — xfs_copy links ../libxlog/.libs/libxlog.a before it
     # exists.  Serialize install to avoid the race.

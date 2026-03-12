@@ -31,25 +31,13 @@ echo "Stage0 rustc: $($OUT/tools/rust-stage0/bin/rustc --version)"
 )
 
 # Rust source archive
-http_file(
-    name = "rust-src-archive",
-    urls = ["https://static.rust-lang.org/dist/rustc-1.91.0-src.tar.xz"],
-    sha256 = "9b94161dba3aa32192e0e75f7891912d98095ffb86087b07a05af35a0265a938",
-    out = "rustc-1.91.0-src.tar.xz",
-)
-
-extract_source(
-    name = "rust-src",
-    source = ":rust-src-archive",
-)
-
 # Build Rust from source with our GCC (specs → padded interp + RPATH)
 package(
     name = "rust",
     build_rule = "binary",
     version = "1.91.0",
-    local_only = True,
-    source = ":rust-src",
+    url = "https://static.rust-lang.org/dist/rustc-1.91.0-src.tar.xz",
+    sha256 = "9b94161dba3aa32192e0e75f7891912d98095ffb86087b07a05af35a0265a938",
     description = "Rust is a systems programming language focused on safety, speed, and concurrency",
     homepage = "https://www.rust-lang.org/",
     license = "Apache-2.0 AND MIT",
@@ -80,16 +68,33 @@ fi
 echo "Using stage0: $($RUST_STAGE0/bin/rustc --version)"
 echo "Using CC=$CC"
 
+# Extract sysroot from CC so we can set LD_LIBRARY_PATH for gcc.
+# The buckos gcc binary runs via host ld-linux but needs buckos glibc
+# (its libstdc++ references GLIBC_2.38+).  LD_LIBRARY_PATH lets the
+# host ld-linux find sysroot glibc + gcc runtime libs.
+_SYSROOT=""
+for _arg in $CC; do
+    case "$_arg" in --sysroot=*) _SYSROOT="${_arg#--sysroot=}" ;; esac
+done
+_GCC_TARGET_DIR="$(dirname "$_SYSROOT")"
+_BUCKOS_LD_LIBS="$_SYSROOT/lib64:$_SYSROOT/usr/lib64:$_GCC_TARGET_DIR/lib64"
+echo "Sysroot: $_SYSROOT"
+echo "LD_LIBRARY_PATH for gcc: $_BUCKOS_LD_LIBS"
+
 # Rust's x.py expects cc/cxx as a single binary path, but our CC is
 # "path/to/gcc --sysroot=... -specs=...".  Create wrapper scripts
 # that also pass CFLAGS/LDFLAGS so LLVM can find dep headers/libs.
+# The wrappers set LD_LIBRARY_PATH so gcc can find buckos glibc when
+# running via the host's dynamic linker.
 mkdir -p "$WORKDIR/cc-wrappers"
 cat > "$WORKDIR/cc-wrappers/buckos-cc" << CCEOF
 #!/bin/sh
+export LD_LIBRARY_PATH="$_BUCKOS_LD_LIBS\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 exec $CC $CFLAGS "\$@" $LDFLAGS
 CCEOF
 cat > "$WORKDIR/cc-wrappers/buckos-cxx" << CXXEOF
 #!/bin/sh
+export LD_LIBRARY_PATH="$_BUCKOS_LD_LIBS\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 exec $CXX $CFLAGS "\$@" $LDFLAGS
 CXXEOF
 chmod +x "$WORKDIR/cc-wrappers/buckos-cc" "$WORKDIR/cc-wrappers/buckos-cxx"
@@ -144,8 +149,22 @@ EOF
 export CC="$WORKDIR/cc-wrappers/buckos-cc"
 export CXX="$WORKDIR/cc-wrappers/buckos-cxx"
 
+# Stage1 rustc links against buckos libstdc++ but runs with host
+# ld-linux.  Create a wrapper that sets LD_LIBRARY_PATH only for
+# rustc invocations, not for the entire build (which would
+# contaminate host Python with buckos libs).
+GCC_LIBDIR=$(dirname $(${CC%% *} -print-file-name=libstdc++.so))
+SYSROOT_LIBDIR=$(dirname $(${CC%% *} -print-file-name=libc.so))
+cat > "$WORKDIR/rustc-wrapper.sh" << RWEOF
+#!/bin/sh
+export LD_LIBRARY_PATH="${GCC_LIBDIR}:${SYSROOT_LIBDIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "\$@"
+RWEOF
+chmod +x "$WORKDIR/rustc-wrapper.sh"
+export RUSTC_WRAPPER="$WORKDIR/rustc-wrapper.sh"
+
 # Build stage 2 (full Rust built by our GCC)
-python3 x.py build --stage 2
+python3 x.py build --stage 2 -j$(nproc)
 
 # Install
 DESTDIR="$OUT" python3 x.py install

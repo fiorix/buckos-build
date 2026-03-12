@@ -40,10 +40,10 @@ package(
         # libltdl/Makefile.am with fresh timestamps during build, triggering
         # automake which isn't available
         make -j${MAKEOPTS:-$(nproc)} \
-            ACLOCAL=true AUTOMAKE=true AUTOCONF=true AUTOHEADER=true MAKEINFO=true
+            ACLOCAL=true AUTOMAKE=true AUTOCONF=true AUTOHEADER=true MAKEINFO=true HELP2MAN=true
 
         make DESTDIR="$OUT" install \
-            ACLOCAL=true AUTOMAKE=true AUTOCONF=true AUTOHEADER=true MAKEINFO=true
+            ACLOCAL=true AUTOMAKE=true AUTOCONF=true AUTOHEADER=true MAKEINFO=true HELP2MAN=true
 
         # Create wrapper scripts that set the correct data directory
         # libtoolize has hardcoded paths that need to be overridden
