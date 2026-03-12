@@ -133,9 +133,12 @@ def _buckos_bootstrap_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
     # glibc (matching version).  Same approach as host_tools_exec.
     patched = ctx.actions.declare_output("patched-compiler", dir = True)
     sysroot_ld = stage.sysroot.project("lib64/ld-linux-x86-64.so.2")
+    patchelf_bin = ctx.attrs._patchelf[DefaultInfo].default_outputs[0]
     rewrite_cmd = cmd_args(ctx.attrs._rewrite_tool[RunInfo])
     rewrite_cmd.add("--tools-dir", stage_dir)
     rewrite_cmd.add("--ld-linux", sysroot_ld)
+    rewrite_cmd.add("--patch-standard")
+    rewrite_cmd.add("--patchelf", patchelf_bin)
     rewrite_cmd.add("--output-dir", patched.as_output())
     ctx.actions.run(
         rewrite_cmd,
@@ -245,6 +248,9 @@ buckos_bootstrap_toolchain = rule(
         ),
         "_rewrite_tool": attrs.default_only(
             attrs.exec_dep(default = "//tools:rewrite_interps"),
+        ),
+        "_patchelf": attrs.default_only(
+            attrs.dep(default = "//tc/bootstrap:patchelf-host"),
         ),
     },
 )

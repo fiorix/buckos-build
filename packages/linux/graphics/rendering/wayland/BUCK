@@ -7,6 +7,10 @@ load("//defs:package.bzl", "package")
 # Uses buckos expat (both linked against buckos glibc, no ABI mismatch).
 # The scanner binary gets sysroot ld-linux via GCC specs, runs on host
 # through the sysroot dynamic linker.
+#
+# pre_configure_cmds patches out the bootstrap circularity where
+# meson's dependency('wayland-scanner') requires a pre-existing
+# scanner to build the scanner itself.
 package(
     name = "wayland-scanner",
     build_rule = "meson",
@@ -16,6 +20,14 @@ package(
     description = "Native wayland-scanner for cross-compilation",
     homepage = "https://gitlab.freedesktop.org/wayland/wayland",
     license = "MIT",
+    pre_configure_cmds = [
+        # wayland's meson.build does dependency('wayland-scanner') to find
+        # a pre-existing scanner for code generation.  When building the
+        # scanner itself there is no pre-existing one — make it optional.
+        # The scanner binary is self-contained (scanner.c + expat) and
+        # doesn't need protocol code generation.
+        "sed -i \"s/dependency('wayland-scanner')/dependency('wayland-scanner', required: false)/g\" src/meson.build",
+    ],
     meson_args = [
         "-Ddocumentation=false",
         "-Dtests=false",
@@ -29,7 +41,6 @@ package(
     post_install_cmds = [
         # CMake config for find_package(WaylandScanner)
         "mkdir -p \"$DESTDIR/usr/lib64/cmake/WaylandScanner\"",
-        # Heredoc with single-quoted delimiter preserves CMake ${} syntax
         """cat > "$DESTDIR/usr/lib64/cmake/WaylandScanner/WaylandScannerConfig.cmake" << 'CMEOF'
 get_filename_component(_WaylandScanner_PREFIX "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(WaylandScanner_FOUND TRUE)

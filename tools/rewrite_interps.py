@@ -17,10 +17,23 @@ import stat
 import sys
 
 
-def _patch_elf_interpreter(path, new_interp_bytes):
+_STANDARD_INTERPS = (
+    b"/lib64/ld-linux-x86-64.so.2",
+    b"/usr/lib64/ld-linux-x86-64.so.2",
+    b"/lib/ld-linux-x86-64.so.2",
+    b"/lib/ld-linux-aarch64.so.1",
+    b"/lib64/ld-linux-aarch64.so.1",
+)
+
+
+def _patch_elf_interpreter(path, new_interp_bytes, patch_standard=False):
     """Patch PT_INTERP in a 64-bit little-endian ELF to new_interp_bytes.
 
-    Only patches interpreters with leading /// padding (from GCC specs).
+    By default only patches interpreters with leading /// padding (from
+    GCC specs).  With patch_standard=True, also patches standard host
+    interpreters — used for compiler binaries built during bootstrap
+    before specs were in effect.
+
     Returns True if patched.
     """
     try:
@@ -49,8 +62,12 @@ def _patch_elf_interpreter(path, new_interp_bytes):
             end = p_offset + p_filesz
         old_interp = data[p_offset:end]
 
-        # Only rewrite padded interpreters (from GCC specs)
-        if not old_interp.startswith(b"///"):
+        # Skip if interpreter doesn't need rewriting
+        if old_interp.startswith(b"///"):
+            pass  # Padded interpreter from GCC specs — always rewrite
+        elif patch_standard and old_interp in _STANDARD_INTERPS:
+            pass  # Standard host interpreter — rewrite when requested
+        else:
             return False
 
         if len(new_interp_bytes) <= p_filesz:
@@ -84,6 +101,12 @@ def main():
                         help="Path to buckos ld-linux-x86-64.so.2 (sysroot artifact)")
     parser.add_argument("--output-dir", required=True,
                         help="Output directory")
+    parser.add_argument("--patch-standard", action="store_true",
+                        help="Also patch standard host interpreters and "
+                             "set RPATH for sysroot lib discovery")
+    parser.add_argument("--patchelf", default=None,
+                        help="Path to patchelf binary (required with "
+                             "--patch-standard)")
     args = parser.parse_args()
 
     tools_dir = os.path.abspath(args.tools_dir)
@@ -102,25 +125,111 @@ def main():
     shutil.copytree(tools_dir, output_dir, symlinks=True,
                     dirs_exist_ok=True)
 
-    # Rewrite padded interpreters to the actual buckos ld-linux path
-    new_interp = ld_linux.encode("ascii") + b"\x00"
-    patched = 0
-    for dirpath, _, filenames in os.walk(output_dir):
-        for name in filenames:
-            fpath = os.path.join(dirpath, name)
-            if os.path.islink(fpath) or not os.path.isfile(fpath):
-                continue
-            try:
-                with open(fpath, "rb") as f:
-                    if f.read(4) != b"\x7fELF":
-                        continue
-            except (PermissionError, OSError):
-                continue
-            if _patch_elf_interpreter(fpath, new_interp):
+    if args.patch_standard:
+        # Compiler binaries from bootstrap have NO RPATH and standard
+        # /lib64/ld-linux interpreters.  Use patchelf to set both the
+        # interpreter (sysroot ld-linux) and RPATH (sysroot lib dirs)
+        # so the compiler finds buckos glibc without LD_LIBRARY_PATH.
+        #
+        # Paths must point INTO the output dir (the copy), not the
+        # original stage — downstream actions only materialize the
+        # patched copy, not the original.
+        patchelf = args.patchelf
+        if not patchelf:
+            print("error: --patch-standard requires --patchelf",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        # Derive sysroot paths from the COPY (output_dir), not the
+        # original.  ld-linux was given as the original path but the
+        # same relative structure exists in the output dir.
+        rel_ld = os.path.relpath(ld_linux, tools_dir)
+        copy_ld = os.path.join(output_dir, rel_ld)
+        copy_sysroot = os.path.dirname(os.path.dirname(copy_ld))
+        copy_gcc_target = os.path.dirname(copy_sysroot)
+
+        rpath_dirs = []
+        for sub in ("lib64", "lib", "usr/lib64", "usr/lib"):
+            d = os.path.join(copy_sysroot, sub)
+            if os.path.isdir(d):
+                rpath_dirs.append(d)
+        for sub in ("lib64", "lib"):
+            d = os.path.join(copy_gcc_target, sub)
+            if os.path.isdir(d):
+                rpath_dirs.append(d)
+        rpath_val = ":".join(rpath_dirs)
+
+        import subprocess as _sp
+        patched = 0
+        for dirpath, _, filenames in os.walk(output_dir):
+            for name in filenames:
+                fpath = os.path.join(dirpath, name)
+                if os.path.islink(fpath) or not os.path.isfile(fpath):
+                    continue
+                try:
+                    with open(fpath, "rb") as f:
+                        hdr = f.read(5)
+                        if hdr[:4] != b"\x7fELF":
+                            continue
+                        if hdr[4] != 2:  # 64-bit only
+                            continue
+                except (PermissionError, OSError):
+                    continue
+                # Only patch executables (files with PT_INTERP).
+                # Running patchelf on shared libs (e.g. ld-linux)
+                # corrupts them by adding LOAD segments.
+                has_interp = False
+                try:
+                    with open(fpath, "rb") as f:
+                        data = f.read()
+                    e_phoff = struct.unpack_from("<Q", data, 32)[0]
+                    e_phentsize = struct.unpack_from("<H", data, 54)[0]
+                    e_phnum = struct.unpack_from("<H", data, 56)[0]
+                    for i in range(e_phnum):
+                        off = e_phoff + i * e_phentsize
+                        if struct.unpack_from("<I", data, off)[0] == 3:
+                            has_interp = True
+                            break
+                except (struct.error, IndexError):
+                    pass
+                if not has_interp:
+                    continue
+
+                os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+                # Two-pass patchelf: RPATH first, then interpreter.
+                # Combined --set-interpreter --set-rpath in one pass
+                # corrupts some binaries.
+                _sp.run([patchelf, "--set-rpath", rpath_val, fpath],
+                        capture_output=True)
+                _sp.run(
+                    [patchelf, "--set-interpreter", copy_ld, fpath],
+                    capture_output=True,
+                )
                 patched += 1
 
-    print(f"Rewrote interpreter in {patched} binaries -> {ld_linux}",
-          file=sys.stderr)
+        print(f"patchelf: set interpreter + rpath on {patched} binaries",
+              file=sys.stderr)
+    else:
+        # Host-tools mode: rewrite padded interpreters in-place.
+        # These binaries already have RPATH from GCC specs.
+        new_interp = ld_linux.encode("ascii") + b"\x00"
+        patched = 0
+        for dirpath, _, filenames in os.walk(output_dir):
+            for name in filenames:
+                fpath = os.path.join(dirpath, name)
+                if os.path.islink(fpath) or not os.path.isfile(fpath):
+                    continue
+                try:
+                    with open(fpath, "rb") as f:
+                        if f.read(4) != b"\x7fELF":
+                            continue
+                except (PermissionError, OSError):
+                    continue
+                if _patch_elf_interpreter(fpath, new_interp, False):
+                    patched += 1
+
+        print(f"Rewrote interpreter in {patched} binaries -> {ld_linux}",
+              file=sys.stderr)
 
     # Rewrite script shebangs containing buck-out paths.  Build-time
     # shebangs like #!/.../buck-out/.../bash become stale when the remote

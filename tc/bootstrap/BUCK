@@ -18,6 +18,16 @@ load("//tc:transitions.bzl", "default_dep")
 load("//defs/rules:toolchain_export.bzl", "toolchain_export")
 load("//defs/rules:host_tools_exec.bzl", "host_tools_exec")
 
+# Patchelf built with host compiler for toolchain interpreter patching.
+# Must not depend on the buckos toolchain to avoid circular deps.
+genrule(
+    name = "patchelf-host",
+    srcs = ["//packages/linux/dev-tools/dev-utils/patchelf:patchelf-src"],
+    out = "patchelf",
+    cmd = "g++ -O2 -std=c++17 -o $OUT $SRCS/src/patchelf.cc",
+    visibility = ["PUBLIC"],
+)
+
 buckos_bootstrap_toolchain(
     name = "bootstrap-toolchain",
     bootstrap_stage = "//tc/bootstrap/stage2:stage2",
