@@ -165,6 +165,7 @@ WRAPPER_EOF
     ''',
     host_deps = [
         "//packages/linux/dev-tools/documentation/help2man:help2man",
+        "//packages/linux/lang/perl:perl",
     ],
     deps = [],
     visibility = ["PUBLIC"],

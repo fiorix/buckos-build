@@ -10,4 +10,7 @@ package(
     homepage = "https://github.com/mozilla/cbindgen",
     license = "MPL-2.0",
     bins = ["cbindgen"],
+    host_deps = [
+        "//packages/linux/lang/rust:rust",
+    ],
 )

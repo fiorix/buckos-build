@@ -32,4 +32,7 @@ ln -sf buckos-cli "$OUT/usr/bin/buckos"
     deps = [
         "//packages/linux/system/libs/crypto/openssl:openssl",
     ],
+    host_deps = [
+        "//packages/linux/lang/rust:rust",
+    ],
 )

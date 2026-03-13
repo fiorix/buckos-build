@@ -46,6 +46,11 @@ package(
         "//packages/linux/core/zlib:zlib",
         "//packages/linux/system/libs/crypto/openssl:openssl",
     ],
+    host_deps = [
+        "//packages/linux/lang/python:python-host",
+        "//packages/linux/dev-tools/build-systems/cmake:cmake",
+        "//packages/linux/dev-tools/build-systems/ninja:ninja",
+    ],
     install_script = """
 export RUST_BACKTRACE=1
 
@@ -97,7 +102,7 @@ compiler-docs = false
 extended = true
 tools = ["cargo", "clippy", "rustfmt", "rustdoc"]
 vendor = true
-python = "$(which python3)"
+python = "$(command -v python3)"
 target = ["x86_64-unknown-linux-gnu"]
 host = ["x86_64-unknown-linux-gnu"]
 
@@ -134,19 +139,19 @@ EOF
 export CC="$WORKDIR/cc-wrappers/buckos-cc"
 export CXX="$WORKDIR/cc-wrappers/buckos-cxx"
 
-# Stage1 rustc links against buckos libstdc++ but runs with host
-# ld-linux.  Create a wrapper that sets LD_LIBRARY_PATH only for
-# rustc invocations, not for the entire build (which would
-# contaminate host Python with buckos libs).
+# librustc_driver.so has DT_RUNPATH=$ORIGIN/../lib (set by LLD, not
+# GCC specs).  x.py builds the stage1 compiler then immediately uses
+# it to compile stdlib — no chance to inject a step between.  Pre-create
+# stage1/lib/ with buckos libstdc++/libgcc_s symlinks so they're in
+# place when x.py first invokes the stage1 rustc.
 GCC_LIBDIR=$(dirname $(${CC%% *} -print-file-name=libstdc++.so))
-SYSROOT_LIBDIR=$(dirname $(${CC%% *} -print-file-name=libc.so))
-cat > "$WORKDIR/rustc-wrapper.sh" << RWEOF
-#!/bin/sh
-export LD_LIBRARY_PATH="${GCC_LIBDIR}:${SYSROOT_LIBDIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-exec "\$@"
-RWEOF
-chmod +x "$WORKDIR/rustc-wrapper.sh"
-export RUSTC_WRAPPER="$WORKDIR/rustc-wrapper.sh"
+STAGE1_LIB="$WORKDIR/src/build/x86_64-unknown-linux-gnu/stage1/lib"
+mkdir -p "$STAGE1_LIB"
+for lib in "$GCC_LIBDIR"/libstdc++.so* "$GCC_LIBDIR"/libgcc_s.so*; do
+    [ -f "$lib" ] && ln -sf "$lib" "$STAGE1_LIB/" 2>/dev/null || true
+done
+echo "Pre-linked GCC runtime libs into stage1/lib/"
+ls -la "$STAGE1_LIB"/lib{std,gcc}* 2>/dev/null || true
 
 # Build stage 2 (full Rust built by our GCC)
 python3 x.py build --stage 2 -j$(nproc)

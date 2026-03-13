@@ -56,7 +56,9 @@ PERL_LDFLAGS="$LDFLAGS $RPATH_FLAGS"
     -Dman3dir=/usr/share/man/man3 \
     -Dusethreads \
     -Duserelocatableinc \
-    -Dinstallstyle=lib/perl5
+    -Dinstallstyle=lib/perl5 \
+    -Dd_crypt=undef \
+    -Dlibs='-lpthread -ldl -lm -lutil -lc'
 
 # Build everything sequentially — perl's cpan extensions have
 # undeclared inter-module deps that break under parallel make.
@@ -102,7 +104,10 @@ make -j1 DESTDIR="$OUT" install
 """,
     deps = [
         "//packages/linux/core/zlib:zlib",
-        "//packages/linux/system/libs/crypto/libxcrypt:libxcrypt",
+        # libxcrypt omitted — perl is an auto_tool_dep, and libxcrypt
+        # needs perl at configure time.  Adding libxcrypt here creates
+        # a cycle: perl → libxcrypt → perl.  The crypt() function is
+        # not needed for build-tool perl usage.
     ],
     visibility = ["PUBLIC"],
 )

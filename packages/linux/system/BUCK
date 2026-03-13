@@ -1778,6 +1778,9 @@ package(
     source = ":buck2-prebuilt-archive",
     description = "buck2 build system binary",
     license = "Apache-2.0",
+    host_deps = [
+        "//packages/linux/system/libs/compression/zstd:zstd",
+    ],
     install_script = """
 mkdir -p "$DESTDIR/usr/bin"
 zstd -d "$SRCS" -o "$DESTDIR/usr/bin/buck2"

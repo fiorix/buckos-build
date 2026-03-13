@@ -197,8 +197,12 @@ ls -la "$OUT/usr/lib64/"*.so* 2>/dev/null | head -5 || true
         "//platforms:is_aarch64": ["//tc/bootstrap/aarch64:cross-linux-headers-aarch64"],
         "DEFAULT": ["//packages/linux/kernel:linux-headers"],
     }),
-    # gperf is needed at install time for locale charmap-kw.h generation.
+    # gperf: locale charmap-kw.h generation
+    # bison: parser generation
+    # python-host: build scripts
     host_deps = [
         "//packages/linux/dev-tools/dev-utils/gperf:gperf",
+        "//packages/linux/lang/python:python-host",
+        "//packages/linux/dev-tools/dev-utils/bison:bison",
     ],
 )

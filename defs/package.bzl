@@ -331,22 +331,38 @@ def package(
     # are only needed in source mode.
     raw_host_deps = build_kwargs.pop("host_deps", [])
 
+    # In bootstrap/host-tools mode, ALL host tools come from host PATH —
+    # explicit host_deps would create cycles back to seed-exec-toolchain
+    # via their exec_dep resolution.
+    if _SOURCE_MODE and (type(raw_host_deps) == "Select" or raw_host_deps):
+        raw_host_deps = select({
+            "//tc/exec:is-bootstrap-mode": [],
+            "//tc/exec:is-host-tools-mode": [],
+            "DEFAULT": raw_host_deps,
+        })
+
     if _auto_tool_deps:
         if _SOURCE_MODE:
-            staged_auto_deps = _auto_tool_deps
+            # In bootstrap/host-tools mode, tools come from host PATH —
+            # no exec_deps needed.  Injecting them would create a cycle:
+            # seed-toolchain → host-tools → package → auto_tool_dep
+            # (exec) → seed-toolchain.
+            staged_auto_deps = select({
+                "//tc/exec:is-bootstrap-mode": [],
+                "//tc/exec:is-host-tools-mode": [],
+                "DEFAULT": _auto_tool_deps,
+            })
         else:
             # With a prebuilt seed, hermetic PATH provides tools.
             staged_auto_deps = []
-        if staged_auto_deps:
-            if type(raw_host_deps) == "Select":
-                all_host_deps = raw_host_deps + staged_auto_deps
-            elif raw_host_deps:
-                all_host_deps = list(raw_host_deps) + staged_auto_deps
-            else:
-                all_host_deps = staged_auto_deps
-            build_kwargs["host_deps"] = all_host_deps
-        elif type(raw_host_deps) == "Select" or raw_host_deps:
-            build_kwargs["host_deps"] = raw_host_deps
+        # staged_auto_deps may be a select — always merge it
+        if type(raw_host_deps) == "Select":
+            all_host_deps = raw_host_deps + staged_auto_deps
+        elif raw_host_deps:
+            all_host_deps = list(raw_host_deps) + staged_auto_deps
+        else:
+            all_host_deps = staged_auto_deps
+        build_kwargs["host_deps"] = all_host_deps
     elif type(raw_host_deps) == "Select" or raw_host_deps:
         build_kwargs["host_deps"] = raw_host_deps
 

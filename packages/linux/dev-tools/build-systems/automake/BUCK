@@ -84,5 +84,8 @@ WRAPPER_EOF
     deps = [
         "//packages/linux/dev-tools/build-systems/autoconf:autoconf",
     ],
+    host_deps = [
+        "//packages/linux/lang/perl:perl",
+    ],
     visibility = ["PUBLIC"],
 )

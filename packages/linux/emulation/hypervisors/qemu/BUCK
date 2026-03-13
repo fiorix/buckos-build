@@ -90,6 +90,10 @@ package(
     ],
     # snappy is C++ — meson's C link test needs -lstdc++ to resolve symbols
     extra_ldflags = ["-lstdc++"],
+    # QEMU's Makefile generates ninja-targets from `ninja -t query` which
+    # omits the phony `all` target.  Without an explicit target, make skips
+    # the ninja invocation entirely (exits 0 with nothing built).
+    make_args = ["all"],
     deps = [
         "//packages/linux/dev-libs/glib:glib",
         "//packages/linux/dev-libs/python/packaging:packaging",
@@ -121,6 +125,9 @@ package(
         "//packages/linux/system/libs/utility/gmp:gmp",
         "//packages/linux/system/libs/crypto/openssl:openssl",
         "//packages/linux/system/libs/crypto/libgcrypt:libgcrypt",
+    ],
+    host_deps = [
+        "//packages/linux/dev-tools/build-systems/ninja:ninja",
     ],
     visibility = ["PUBLIC"],
 )

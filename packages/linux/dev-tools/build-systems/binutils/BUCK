@@ -15,6 +15,7 @@ package(
     # creates a truncated libbfd.a.  Cross-compiler --sysroot provides
     # the actual hermeticity boundary — skip_host_arg is safe here.
     skip_host_arg = True,
+    skip_cc_auto_arg = True,
     configure_args = [
         "--disable-nls",
         "--disable-werror",
