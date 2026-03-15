@@ -15,11 +15,18 @@ Env vars from sh_test:
     RUN_ENV            — optional path to runtime env wrapper (sets LD_LIBRARY_PATH)
 """
 
+import ctypes
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
+
+
+def _pdeathsig():
+    """Ensure VM process is killed when test runner exits."""
+    ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)
 
 _CLEAR_RE = re.compile(r"\x1bc|\x1b\[[0-9]*[JH]|\x1b\[\?[0-9;]*[hl]")
 
@@ -104,9 +111,16 @@ def main():
     lines = []
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        preexec_fn=_pdeathsig, start_new_session=True,
     )
 
-    timer = threading.Timer(30, lambda: proc.kill())
+    def _kill_pg():
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    timer = threading.Timer(30, _kill_pg)
     timer.start()
 
     try:
@@ -116,7 +130,7 @@ def main():
                 if m in line:
                     pos_markers[m] = True
             if all(pos_markers.values()):
-                proc.kill()
+                _kill_pg()
                 break
     finally:
         timer.cancel()

@@ -10,6 +10,7 @@ Env vars from sh_test:
     INITRAMFS      — path to initramfs build output (dir with *.cpio.gz or file)
 """
 
+import ctypes
 import multiprocessing
 import os
 import re
@@ -18,6 +19,11 @@ import signal
 import subprocess
 import sys
 import time
+
+
+def _pdeathsig():
+    """Ensure VM process is killed when test runner exits."""
+    ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)
 
 _CLEAR_RE = re.compile(r"\x1bc|\x1b\[[0-9]*[JH]|\x1b\[\?[0-9;]*[hl]")
 
@@ -89,7 +95,8 @@ def main():
         "--console", "off",
     ]
 
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            preexec_fn=_pdeathsig, start_new_session=True)
 
     output = ""
     boot_string = "Run /init as init process"
@@ -115,11 +122,17 @@ def main():
         sel.close()
     finally:
         if proc.poll() is None:
-            proc.send_signal(signal.SIGTERM)
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
                 proc.wait()
 
     stderr = proc.stderr.read() if proc.stderr else ""
