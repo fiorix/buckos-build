@@ -14,12 +14,18 @@ Env vars from sh_test:
     RUN_ENV   — optional path to runtime env wrapper (sets LD_LIBRARY_PATH)
 """
 
+import ctypes
 import os
 import re
 import signal
 import subprocess
 import sys
 import threading
+
+
+def _pdeathsig():
+    """Ensure VM process is killed when test runner exits."""
+    ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)
 
 _CLEAR_RE = re.compile(r"\x1bc|\x1b\[[0-9]*[JH]|\x1b\[\?[0-9;]*[hl]")
 
@@ -35,12 +41,19 @@ def find_file(base, name):
 
 
 def find_kernel(path):
-    """Find a vmlinuz file under path."""
+    """Find a kernel image under path (vmlinuz or bzimage)."""
     if os.path.isfile(path):
         return path
-    for dirpath, _, filenames in os.walk(path):
+    # Check top-level first to avoid walking huge build trees.
+    if os.path.isdir(path):
+        for f in sorted(os.listdir(path)):
+            if f.startswith("vmlinuz") or f in ("bzimage", "bzImage"):
+                return os.path.join(path, f)
+    for dirpath, dirnames, filenames in os.walk(path):
+        # Skip build trees — millions of files, no kernel images.
+        dirnames[:] = [d for d in dirnames if d not in ("build-tree", "modules", "headers")]
         for f in sorted(filenames):
-            if f.startswith("vmlinuz"):
+            if f.startswith("vmlinuz") or f in ("bzimage", "bzImage"):
                 return os.path.join(dirpath, f)
     return None
 
@@ -132,9 +145,17 @@ def main():
 
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        preexec_fn=_pdeathsig, start_new_session=True,
     )
 
-    timer = threading.Timer(120, lambda: proc.kill())
+    def _kill_pg():
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    timer = threading.Timer(300, _kill_pg)
+    timer.daemon = True
     timer.start()
 
     try:
@@ -144,10 +165,11 @@ def main():
                 if marker in line and label not in found:
                     found.add(label)
             if found == set(markers.keys()):
-                proc.kill()
+                _kill_pg()
                 break
     finally:
         timer.cancel()
+        _kill_pg()
         proc.wait()
 
     output = "".join(lines)

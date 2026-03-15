@@ -328,7 +328,7 @@ def _create_squashfs(rootfs_dir, modules_dir, work):
         squashfs_out = os.path.join(live_dir, "filesystem.squashfs")
         print("Creating squashfs...")
         _run([mksquashfs, rootfs_work, squashfs_out,
-              "-comp", "xz", "-no-progress", "-all-root"])
+              "-comp", "zstd", "-no-progress", "-all-root"])
     finally:
         shutil.rmtree(rootfs_work, ignore_errors=True)
 

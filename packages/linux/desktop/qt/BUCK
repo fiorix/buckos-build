@@ -243,6 +243,37 @@ fi
         "//packages/linux/system/init/systemd:systemd",
         "//packages/linux/system/libs/ipc/libcap:libcap",
     ],
+    # Qt6 installs tools (qtpaths, moc, qsb) that consumers run at
+    # configure time.  These tools link against Qt6's deps (ICU, freetype,
+    # etc.) but their RPATH only has sysroot dirs.  Patch installed tool
+    # RPATHs to include dep lib dirs so consumers don't need host_deps.
+    post_install_cmds = ["""
+for _tool in $OUT/usr/lib64/qt6/bin/* $OUT/usr/lib64/qt6/libexec/*; do
+    [ -f "$_tool" ] && file -b "$_tool" | grep -q ELF || continue
+    _rpath=$(patchelf --print-rpath "$_tool" 2>/dev/null || true)
+    [ -z "$_rpath" ] && continue
+    # Add dep lib dirs from LD_LIBRARY_PATH to RPATH
+    _extra=""
+    IFS=: read -ra _dirs <<< "${LD_LIBRARY_PATH:-}"
+    for _d in "${_dirs[@]}"; do
+        [ -d "$_d" ] && _extra="${_extra:+$_extra:}$_d"
+    done
+    [ -n "$_extra" ] && patchelf --set-rpath "$_rpath:$_extra" "$_tool" 2>/dev/null || true
+done
+
+# Create usr/bin symlinks for key Qt6 tools so host_deps
+# path-prepend (which projects usr/bin) finds them.  Qt6 installs
+# to usr/lib64/qt6/bin by default.
+mkdir -p "$OUT/usr/bin"
+for _tool in qtpaths moc rcc uic qsb lrelease; do
+    _src="$OUT/usr/lib64/qt6/bin/$_tool"
+    [ -f "$_src" ] && ln -sf "../lib64/qt6/bin/$_tool" "$OUT/usr/bin/$_tool" || true
+done
+for _tool in rcc qlalr; do
+    _src="$OUT/usr/lib64/qt6/libexec/$_tool"
+    [ -f "$_src" ] && ln -sf "../lib64/qt6/libexec/$_tool" "$OUT/usr/bin/$_tool" 2>/dev/null || true
+done
+"""],
 
     visibility = ["PUBLIC"],
 )
