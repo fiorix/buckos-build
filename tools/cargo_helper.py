@@ -147,6 +147,13 @@ def main():
 
     apply_cache_config(env)
 
+    # Isolate cargo from user-level config (~/.cargo/config.toml) which
+    # may set linker=clang, rustc-wrapper, or other host-specific options.
+    _scratch = os.environ.get("BUCK_SCRATCH_PATH", os.environ.get("TMPDIR", "/tmp"))
+    _cargo_home = os.path.join(os.path.abspath(_scratch), "cargo-home")
+    os.makedirs(_cargo_home, exist_ok=True)
+    env["CARGO_HOME"] = _cargo_home
+
     if args.hermetic_path:
         env["PATH"] = ":".join(os.path.abspath(p) for p in args.hermetic_path)
         # Derive LD_LIBRARY_PATH from hermetic bin dirs so dynamically
@@ -202,6 +209,16 @@ def main():
 
     if args.ld_linux:
         sysroot_lib_paths(args.ld_linux, env)
+
+    # Resolve sccache to absolute path now that PATH is configured.
+    # buck-out relative paths (122 chars) exceed the 108-char Unix
+    # socket limit (SUN_LEN) that sccache uses for server discovery.
+    if env.get("RUSTC_WRAPPER") == "sccache":
+        _sccache_abs = shutil.which("sccache", path=env.get("PATH", ""))
+        if _sccache_abs:
+            _sccache_abs = os.path.abspath(_sccache_abs)
+            env["RUSTC_WRAPPER"] = _sccache_abs
+            env["CARGO_BUILD_RUSTC_WRAPPER"] = _sccache_abs
 
     # Pass the FULL CC (with --sysroot and -specs) through RUSTFLAGS
     # so rustc invokes GCC with the buckos specs file.  The specs

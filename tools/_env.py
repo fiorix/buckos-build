@@ -111,13 +111,12 @@ def apply_cache_config(env):
                     if _val and "ccache" not in _val:
                         env[_var] = _ccache_bin + " " + _val
     if env.get("BUCKOS_SCCACHE") == "1":
-        # Resolve sccache to absolute path — buck-out relative paths
-        # exceed the 108-char Unix socket limit (SUN_LEN) that sccache
-        # uses for server discovery based on argv[0].
-        _sccache_bin = shutil.which("sccache", path=env.get("PATH", ""))
-        _sccache_name = os.path.abspath(_sccache_bin) if _sccache_bin else "sccache"
-        env["RUSTC_WRAPPER"] = _sccache_name
-        env["CARGO_BUILD_RUSTC_WRAPPER"] = _sccache_name
+        # Set RUSTC_WRAPPER to bare "sccache" — cargo_helper resolves
+        # it to an absolute path after PATH is configured.  Bare name
+        # here because apply_cache_config runs before PATH setup.
+        env["RUSTC_WRAPPER"] = "sccache"
+        env["CARGO_BUILD_RUSTC_WRAPPER"] = "sccache"
+>>>>>>> 1bd38ee9 (Resolve sccache to absolute path for RUSTC_WRAPPER)
         sccache_dir = env.get("SCCACHE_DIR", "")
         if sccache_dir:
             sccache_dir = os.path.abspath(os.path.expanduser(sccache_dir))
