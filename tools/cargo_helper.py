@@ -215,16 +215,15 @@ def main():
     if args.ld_linux:
         sysroot_lib_paths(args.ld_linux, env)
 
-    # Force sccache to TCP instead of Unix sockets — sccache computes
-    # its default UDS path from current_exe() (/proc/self/exe resolves
-    # to the full buck-out path, >108 chars, hitting SUN_LEN).  TCP
-    # localhost avoids the socket path length issue entirely.
-    if env.get("SCCACHE_SERVER_UDS"):
-        del env["SCCACHE_SERVER_UDS"]
-    env["SCCACHE_SERVER_PORT"] = "4226"
-    print(f"DEBUG sccache: RUSTC_WRAPPER={env.get('RUSTC_WRAPPER','')}", file=sys.stderr)
-    print(f"DEBUG sccache: SCCACHE_SERVER_UDS={env.get('SCCACHE_SERVER_UDS','')}", file=sys.stderr)
-    print(f"DEBUG sccache: CARGO_HOME={env.get('CARGO_HOME','')}", file=sys.stderr)
+    # Disable sccache as RUSTC_WRAPPER — sccache checks its default
+    # Unix socket path (from current_exe(), >108 chars in buck-out)
+    # against SUN_LEN BEFORE reading SCCACHE_SERVER_PORT/UDS env vars.
+    # buck2's action cache makes sccache redundant for cargo builds
+    # anyway — each build starts from a clean source extract.
+    # Set to empty string to override ~/.cargo/config's rustc-wrapper
+    # which cargo finds via parent-dir config search.
+    env["RUSTC_WRAPPER"] = ""
+    env["CARGO_BUILD_RUSTC_WRAPPER"] = ""
 
     # Pass the FULL CC (with --sysroot and -specs) through RUSTFLAGS
     # so rustc invokes GCC with the buckos specs file.  The specs
