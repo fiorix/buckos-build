@@ -26,7 +26,7 @@
 
 [buckos.cache]
   mode = enabled
-  location = internal
+  location = homedir
   ccache_size = 100G
   sccache_size = 100G
 

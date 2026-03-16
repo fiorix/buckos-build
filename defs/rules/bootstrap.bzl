@@ -21,7 +21,7 @@ TARGET_TRIPLE = "x86_64-buckos-linux-gnu"
 
 # ── Compiler cache for bootstrap (opportunistic host ccache) ─────────
 _BOOTSTRAP_CACHE_MODE = read_config("buckos.cache", "mode", "enabled")
-_BOOTSTRAP_CACHE_LOCATION = read_config("buckos.cache", "location", "internal")
+_BOOTSTRAP_CACHE_LOCATION = read_config("buckos.cache", "location", "homedir")
 _BOOTSTRAP_CCACHE_SIZE = read_config("buckos.cache", "ccache_size", "100G")
 
 def _bootstrap_cache_env():
@@ -34,7 +34,7 @@ def _bootstrap_cache_env():
     """
     if _BOOTSTRAP_CACHE_MODE != "enabled":
         return {}
-    ccache_dir = ".buckos/cache/ccache" if _BOOTSTRAP_CACHE_LOCATION == "internal" else "~/.buckos/caches/ccache"
+    ccache_dir = ".buckos/cache/ccache" if _BOOTSTRAP_CACHE_LOCATION == "projectdir" else "~/.buckos/caches/ccache"
     return {
         "BUCKOS_CCACHE": "1",
         "CCACHE_DIR": ccache_dir,

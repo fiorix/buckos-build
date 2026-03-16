@@ -76,7 +76,7 @@ _SOURCE_MODE = not _HAS_PREBUILT_SEED
 
 # ── Compiler cache configuration (read once at module load) ───────────
 _CACHE_MODE = read_config("buckos.cache", "mode", "enabled")
-_CACHE_LOCATION = read_config("buckos.cache", "location", "internal")
+_CACHE_LOCATION = read_config("buckos.cache", "location", "homedir")
 _CCACHE_SIZE = read_config("buckos.cache", "ccache_size", "100G")
 _SCCACHE_SIZE = read_config("buckos.cache", "sccache_size", "100G")
 _CACHE_ENABLED = _CACHE_MODE == "enabled"
@@ -88,8 +88,8 @@ def _cache_env(build_rule, name = ""):
     _CACHE_BLOCKLIST = ("ccache", "sccache")
     if name in _CACHE_BLOCKLIST:
         return {}
-    ccache_dir = ".buckos/cache/ccache" if _CACHE_LOCATION == "internal" else "~/.buckos/caches/ccache"
-    sccache_dir = ".buckos/cache/sccache" if _CACHE_LOCATION == "internal" else "~/.buckos/caches/sccache"
+    ccache_dir = ".buckos/cache/ccache" if _CACHE_LOCATION == "projectdir" else "~/.buckos/caches/ccache"
+    sccache_dir = ".buckos/cache/sccache" if _CACHE_LOCATION == "projectdir" else "~/.buckos/caches/sccache"
     env = {
         "BUCKOS_CCACHE": "1",
         "CCACHE_DIR": ccache_dir,
@@ -301,6 +301,49 @@ def package(
         build_kwargs.setdefault("src_uri", url)
     if sha256 != None:
         build_kwargs.setdefault("src_sha256", sha256)
+
+    # -- Auto-create vendor deps for cargo packages in mirror mode -----------
+    # When the mirror/syncer provides vendored crate deps, auto-wire them
+    # so cargo packages build offline without pre-vendored source tarballs.
+    # The syncer generates vendor deps for all cargo packages (BUILD_RULE
+    # in BXL output) and uploads them alongside source archives.
+    # Pre-vendored packages (cloud-hypervisor) get redundant vendor deps
+    # but the --vendor-dir flag takes precedence over in-source vendor/.
+    if build_rule == "cargo" and "vendor_deps" not in build_kwargs and url and sha256:
+        _vendor_filename = "{}-{}-vendor.tar.zst".format(name, version)
+        _vendor_labels = ["buckos:download", "buckos:cargo-vendor"]
+        _have_vendor = False
+
+        if _MIRROR_MODE == "vendor" and _MIRROR_VENDOR_DIR:
+            native.export_file(
+                name = name + "-vendor-archive",
+                src = "{}/{}".format(_MIRROR_VENDOR_DIR, _vendor_filename),
+                labels = _vendor_labels,
+            )
+            _have_vendor = True
+        elif _MIRROR_PREFIX:
+            # No sha256 verification — cargo verifies each vendored
+            # crate's checksum against Cargo.lock at build time.
+            _vendor_dl = "{}-{}-vendor.tar.zst".format(name, version)
+            _vendor_url = "{}/{}/{}{}".format(
+                _MIRROR_PREFIX, name[0], _vendor_dl, _MIRROR_PARAMS,
+            )
+            native.http_file(
+                name = name + "-vendor-archive",
+                urls = [_vendor_url],
+                sha256 = "",
+                out = _vendor_dl,
+                labels = _vendor_labels,
+            )
+            _have_vendor = True
+
+        if _have_vendor:
+            extract_source(
+                name = name + "-vendor-src",
+                source = ":" + name + "-vendor-archive",
+                strip_components = 1,
+            )
+            build_kwargs["vendor_deps"] = ":" + name + "-vendor-src"
 
     # -- Auto-inject build host tools for isolation from host /usr/bin --------
     # Without this, configure/make/ninja find host python, perl, sh, sed,
