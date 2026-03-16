@@ -18,6 +18,13 @@ package(
         "--disable-specs",
         # Cross-compilation: malloc(0) returns non-NULL on Linux/glibc
         "--enable-malloc0returnsnull=no",
+        # RAWCPP: libX11 configure searches PATH for cpp and tests -undef.
+        # GCC's -E mode still matches `grep unix` in output (line markers
+        # or builtin defines from the target triple), so the autodetection
+        # fails.  Pass RAWCPP directly to skip the PATH search and set
+        # RAWCPPFLAGS so configure doesn't test -undef.
+        "RAWCPP=${CPP}",
+        "RAWCPPFLAGS=-undef -ansi",
     ],
     use_configure = {
         "ipv6": ("--enable-ipv6", "--disable-ipv6"),
