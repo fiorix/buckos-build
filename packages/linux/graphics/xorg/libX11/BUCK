@@ -15,7 +15,7 @@ package(
     # libX11 configure's RAWCPP check greps for 'unix' and errors out.
     # Patch the error to a warning so configure continues.
     pre_configure_cmds = [
-        "sed -i 's/as_fn_error.*cpp defines unix.*/echo \"WARNING: skipping RAWCPP -undef check\"/' configure",
+        "sed -i '/defines unix with or without/s/as_fn_error/echo WARNING:/' configure",
     ],
     configure_args = [
         "--prefix=/usr",
