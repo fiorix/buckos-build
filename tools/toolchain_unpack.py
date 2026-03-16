@@ -490,15 +490,21 @@ def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None, host_prefix=None):
     )
 
     # Build the *link spec: dynamic linker + RPATH + optional -L for CRTs.
-    link_extra = (
-        f"%{{!shared:%{{!static:--dynamic-linker {ld_linux_abs}"
-        f" -rpath {rpath_str}}}}}"
-    )
-    # For host-tools gcc-native: add -L flags so ld finds CRT files
-    # (crt1.o, crti.o, crtn.o) in the host-tools prefix.  Without
-    # --sysroot, gcc-native's built-in startfile search only covers
-    # /usr/lib which doesn't exist on minimal hosts.
+    #
+    # Cross-compiler: use %R (GCC's sysroot substitution) so specs are
+    # machine-independent.  %R expands to --sysroot value at gcc
+    # invocation time.  Padded with '/' for in-place interpreter
+    # rewriting by rewrite_interps.py.
+    #
+    # Host-tools gcc-native: keep absolute paths — the ld-linux is in
+    # host-tools (not the sysroot), so %R can't reference it.  Protected
+    # by allow_cache_upload=False in toolchain_import.
     if host_prefix:
+        # gcc-native: absolute paths + -L for CRT discovery
+        link_extra = (
+            f"%{{!shared:%{{!static:--dynamic-linker {ld_linux_abs}"
+            f" -rpath {rpath_str}}}}}"
+        )
         lib_flags = ""
         for d in ("lib", "lib64", "usr/lib", "usr/lib64"):
             p = os.path.join(host_prefix, d)
@@ -506,6 +512,16 @@ def _write_specs(gcc_libdir, ld_linux_abs, sysroot=None, host_prefix=None):
                 lib_flags += f" -L{os.path.abspath(p)}"
         if lib_flags:
             link_extra += lib_flags
+    else:
+        # Cross-compiler: %R-relative paths (machine-independent)
+        pad = "/" * 260
+        interp = f"{pad}%R/lib64/ld-linux-x86-64.so.2"
+        sysroot_rpath = "%R/lib64:%R/lib:%R/usr/lib64:%R/usr/lib"
+        link_extra = (
+            f"%{{!shared:%{{!static:--dynamic-linker {interp}}}}}"
+            f" %{{!static:--disable-new-dtags"
+            f" -rpath {sysroot_rpath}:{rpath_str}}}"
+        )
 
     specs_content += f"*link:\n+ {link_extra}\n\n"
 

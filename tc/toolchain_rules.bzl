@@ -193,12 +193,12 @@ def _buckos_bootstrap_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
         else:
             remaining_ldflags.append(flag)
 
+    # Generate machine-independent specs using %R (GCC's sysroot
+    # substitution).  The specs file content is the same on every
+    # machine — safely cacheable by remote action caches.
     specs_file = ctx.actions.declare_output("gcc-link.specs")
     gen_cmd = cmd_args(ctx.attrs._gen_specs_tool[RunInfo])
-    gen_cmd.add("--ld-linux", patched_ld)
-    patched_gcc_lib_dir = patched.project("tools/" + triple + "/" + "lib64") if stage.gcc_lib_dir else None
-    if patched_gcc_lib_dir:
-        gen_cmd.add("--gcc-lib-dir", patched_gcc_lib_dir)
+    gen_cmd.add("--ld-linux-subpath", "lib64/ld-linux-x86-64.so.2")
     if rpath_val:
         gen_cmd.add("--rpath", rpath_val)
     gen_cmd.add("--output", specs_file.as_output())
@@ -208,11 +208,17 @@ def _buckos_bootstrap_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
     cc_args.add(cmd_args("-specs=", specs_file, delimiter = ""))
     cxx_args.add(cmd_args("-specs=", specs_file, delimiter = ""))
 
-    # ld.bfd resolves DT_NEEDED chains and needs to find libstdc++.so
-    # when linking C programs against C++ shared libraries.  The GCC
-    # runtime libs live outside the sysroot — add them as rpath-link.
+    # GCC runtime libs (libstdc++, libgcc_s) live outside the sysroot.
+    # Add them as both -rpath (runtime discovery) and -rpath-link
+    # (link-time DT_NEEDED chain resolution).  Uses --disable-new-dtags
+    # so RPATH entries use DT_RPATH (propagates to loaded shared libs).
+    # These are buck2 cmd_args with artifacts, resolved to local paths
+    # at analysis time — no remote cache portability issues.
+    patched_gcc_lib_dir = patched.project("tools/" + triple + "/" + "lib64") if stage.gcc_lib_dir else None
     ldflags = list(remaining_ldflags)
     if patched_gcc_lib_dir:
+        ldflags.append("-Wl,--disable-new-dtags")
+        ldflags.append(cmd_args("-Wl,-rpath,", patched_gcc_lib_dir, delimiter = ""))
         ldflags.append(cmd_args("-Wl,-rpath-link,", patched_gcc_lib_dir, delimiter = ""))
 
     # Explicit -L for sysroot lib dirs so the linker finds sysroot libc
