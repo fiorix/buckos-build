@@ -236,6 +236,16 @@ def main():
                     _link = os.path.join(_symlink_dir, _name)
                     if not os.path.exists(_link):
                         os.symlink(_cc_bin, _link)
+                # Create a cpp wrapper so AC_PATH_PROGS([RAWCPP], [cpp])
+                # finds the buckos preprocessor instead of host /bin/cpp.
+                if _var == "CC":
+                    _cpp_link = os.path.join(_symlink_dir, "cpp")
+                    if not os.path.exists(_cpp_link):
+                        with open(_cpp_link, "w") as _f:
+                            _f.write("#!/bin/sh\nexec {} -E \"$@\"\n".format(
+                                " ".join("'{}'".format(t) if " " in t else t
+                                         for t in _val.split())))
+                        os.chmod(_cpp_link, 0o755)
                 _need_symlink_path = True
     if args.hermetic_path:
         env["PATH"] = ":".join(os.path.abspath(p) for p in args.hermetic_path)
