@@ -36,10 +36,34 @@ def _filename_from_url(url: str) -> str | None:
         return None
     return filename
 
+def _get_build_rule(target) -> str | None:
+    """Extract build rule from buckos:build:* label."""
+    labels_val = target.get_attr("labels")
+    if labels_val:
+        for label in labels_val:
+            if label.startswith("buckos:build:"):
+                return label[len("buckos:build:"):]
+    return None
+
+def _lookup_sibling_build_rule(ctx: bxl.Context, target) -> str | None:
+    """Look up the build rule from the sibling -build target."""
+    tgt_name = str(target.label.name)
+    if tgt_name.endswith("-archive"):
+        build_name = tgt_name[:-len("-archive")] + "-build"
+        pkg_path = str(target.label).rsplit(":", 1)[0]
+        build_label = pkg_path + ":" + build_name
+        query = ctx.uquery()
+        build_set = query.eval(build_label)
+        for bt in build_set:
+            rule = _get_build_rule(bt)
+            if rule:
+                return rule
+    return None
+
 def _get_source_info_from_target(ctx: bxl.Context, target) -> dict | None:
     """
     Extract source vendoring info from a target.
-    Returns dict with src_uri, sha256, etc. or None if not a source target.
+    Returns dict with src_uri, sha256, build_rule, etc. or None if not a source target.
     """
     # Use the new attribute access API
     src_uri_val = target.get_attr("src_uri")
@@ -73,6 +97,7 @@ def _get_source_info_from_target(ctx: bxl.Context, target) -> dict | None:
             "signature_sha256": sig_sha256_val,
             "filename": filename,
             "version": version_val,
+            "build_rule": _get_build_rule(target),
         }
 
     # Check for http_file targets (urls/sha256/out attributes)
@@ -111,6 +136,7 @@ def _get_source_info_from_target(ctx: bxl.Context, target) -> dict | None:
             "signature_sha256": None,
             "filename": filename,
             "version": None,
+            "build_rule": _lookup_sibling_build_rule(ctx, target),
         }
 
     return None
@@ -204,10 +230,12 @@ def _vendor_sources_impl(ctx: bxl.Context) -> None:
     if dry_run:
         ctx.output.print("Would vendor {} sources:".format(len(sources)))
         for source in sources:
-            ctx.output.print("  {} -> {}/{}".format(
+            rule_suffix = " [{}]".format(source["build_rule"]) if source.get("build_rule") else ""
+            ctx.output.print("  {} -> {}/{}{}".format(
                 source["target"],
                 source["vendor_dir"],
                 source["filename"],
+                rule_suffix,
             ))
         return
 
@@ -225,6 +253,8 @@ def _vendor_sources_impl(ctx: bxl.Context) -> None:
         ctx.output.print(prefix + "FILENAME=" + source["filename"])
         if source["version"]:
             ctx.output.print(prefix + "VERSION=" + source["version"])
+        if source["build_rule"]:
+            ctx.output.print(prefix + "BUILD_RULE=" + source["build_rule"])
         if source["signature_sha256"]:
             ctx.output.print(prefix + "SIG_SHA256=" + source["signature_sha256"])
 
