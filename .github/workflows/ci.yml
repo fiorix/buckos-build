@@ -98,6 +98,9 @@ jobs:
     name: test with seed
     needs: [test]
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      ACTIONS_CACHE_SERVICE_V2: "on"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -105,7 +108,7 @@ jobs:
           name: seed-toolchain
           path: .
       - name: Install dependencies
-        run: sudo apt-get install -yq zstd udev
+        run: sudo apt-get install -yq zstd udev ccache
       - name: Enable KVM
         run: |
           if [ -e /dev/kvm ] && [ ! -f /etc/udev/rules.d/99-kvm4all.rules ]; then
@@ -114,6 +117,14 @@ jobs:
             sudo udevadm control --reload-rules
             sudo udevadm trigger --name-match=kvm
           fi
+      - name: Restore ccache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .buckos/cache/ccache
+          key: ccache-seed-${{ hashFiles('tc/bootstrap/host-tools/packages.bzl') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-seed-${{ hashFiles('tc/bootstrap/host-tools/packages.bzl') }}-
+            ccache-seed-
       - name: Install buck2
         run: |
           mkdir -p "$HOME/.local/bin"

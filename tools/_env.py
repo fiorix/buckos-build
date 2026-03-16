@@ -27,6 +27,13 @@ _PASSTHROUGH = frozenset({
     "http_proxy", "https_proxy", "no_proxy",
     # TLS trust — squid TLS interception CA and system bundle.
     "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+    # GitHub Actions cache API — sccache GHA backend needs these to
+    # store/retrieve cached objects via the Actions cache service.
+    # Only present in CI; absent on dev machines (no effect).
+    "ACTIONS_RESULTS_URL",
+    "ACTIONS_RUNTIME_TOKEN",
+    "ACTIONS_CACHE_SERVICE_V2",
+    "SCCACHE_GHA_ENABLED",
 })
 
 # Vars pinned to fixed values for determinism.
