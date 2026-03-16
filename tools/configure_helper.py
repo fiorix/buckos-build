@@ -210,6 +210,11 @@ def main():
             else:
                 env[key] = resolved
 
+    # Derive CPP from CC to prevent autotools falling back to host
+    # /bin/cpp which can't find cc1 under hermetic PATH.
+    if "CC" in env and "CPP" not in env:
+        env["CPP"] = env["CC"] + " -E"
+
     apply_cache_config(env)
 
     # Create gcc/cc symlinks on PATH so libtool sub-configures
