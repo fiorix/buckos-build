@@ -321,21 +321,6 @@ def package(
                 labels = _vendor_labels,
             )
             _have_vendor = True
-        elif _MIRROR_PREFIX:
-            # No sha256 verification — cargo verifies each vendored
-            # crate's checksum against Cargo.lock at build time.
-            _vendor_dl = "{}-{}-vendor.tar.zst".format(name, version)
-            _vendor_url = "{}/{}/{}{}".format(
-                _MIRROR_PREFIX, name[0], _vendor_dl, _MIRROR_PARAMS,
-            )
-            native.http_file(
-                name = name + "-vendor-archive",
-                urls = [_vendor_url],
-                sha256 = "",
-                out = _vendor_dl,
-                labels = _vendor_labels,
-            )
-            _have_vendor = True
 
         if _have_vendor:
             extract_source(
