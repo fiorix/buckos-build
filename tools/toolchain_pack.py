@@ -490,12 +490,17 @@ def main():
         host_tools_dst = None
         if args.host_tools_dir:
             host_tools_src = os.path.abspath(args.host_tools_dir)
+            print(f"Host-tools source: {host_tools_src}", file=sys.stderr)
             if not os.path.isdir(host_tools_src):
                 print(f"error: host-tools directory not found: {host_tools_src}", file=sys.stderr)
                 sys.exit(1)
+            ht_contents = os.listdir(host_tools_src)
+            print(f"Host-tools contents: {sorted(ht_contents)}", file=sys.stderr)
             host_tools_dst = os.path.join(tmpdir, "host-tools")
             shutil.copytree(host_tools_src, host_tools_dst, symlinks=True)
             has_host_tools = True
+        else:
+            print("No --host-tools-dir provided, archive will not include host-tools", file=sys.stderr)
 
         # Scrub absolute buck-out paths from ELF binaries in the cross-compiler
         # tree only.  Host-tools binaries must NOT be scrubbed because tools
