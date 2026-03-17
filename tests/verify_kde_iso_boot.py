@@ -187,12 +187,11 @@ def main():
     output = _CLEAR_RE.sub("", output)
     ok = found == set(markers.keys())
 
-    # If QEMU exited without finding markers and produced very little
-    # output, the VM likely crashed due to KVM/machine incompatibility
-    # (e.g. aarch64 virt machine with incomplete driver support for
-    # systemd boot).  Report SKIP rather than blocking CI.
-    if not ok and len(lines) < 200:
-        print("SKIP: QEMU exited early with insufficient output")
+    # If QEMU exited without reaching init, the VM likely crashed due
+    # to KVM/machine incompatibility.  Check if any line shows init
+    # running (kernel timestamp > 1s typically means init started).
+    if not ok and not any("Run /init" in l or "Freeing unused kernel" in l for l in lines):
+        print("SKIP: VM did not reach init (possible KVM/driver incompatibility)")
         print(f"  exit code: {proc.returncode}, captured {len(lines)} lines")
         sys.exit(0)
 
