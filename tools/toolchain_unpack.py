@@ -148,9 +148,19 @@ def _rewrite_interpreters(toolchain_dir):
     ld-linux versions causes segfaults.  Patch all binaries to use the
     bundled buckos ld-linux so the toolchain is self-contained.
     """
+    # Try host-tools first, fall back to sysroot ld-linux.
+    # host-tools/lib64/ may not have ld-linux if glibc wasn't copied there.
     ld_linux = os.path.join(toolchain_dir, "host-tools", "lib64", "ld-linux-x86-64.so.2")
     if not os.path.exists(ld_linux):
-        return
+        # Sysroot ld-linux — always present in cross-compiler output.
+        for triple_dir in _glob.glob(os.path.join(toolchain_dir, "tools", "*-linux-gnu")):
+            candidate = os.path.join(triple_dir, "sys-root", "lib64", "ld-linux-x86-64.so.2")
+            if os.path.exists(candidate):
+                ld_linux = candidate
+                break
+        else:
+            print("warning: no ld-linux found, skipping interpreter rewrite", file=sys.stderr)
+            return
 
     new_interp = os.path.abspath(ld_linux)
     patched = 0
@@ -203,7 +213,14 @@ def _inject_missing_rpath(toolchain_dir):
 
     # Set up env so patchelf can run (it needs the bundled ld-linux)
     env = clean_env()
+    # Find ld-linux for LD_LIBRARY_PATH — try host-tools then sysroot.
     ld_linux = os.path.join(host_tools, "lib64", "ld-linux-x86-64.so.2")
+    if not os.path.exists(ld_linux):
+        for triple_dir in _glob.glob(os.path.join(toolchain_dir, "tools", "*-linux-gnu")):
+            candidate = os.path.join(triple_dir, "sys-root", "lib64", "ld-linux-x86-64.so.2")
+            if os.path.exists(candidate):
+                ld_linux = candidate
+                break
     if os.path.exists(ld_linux):
         env["LD_LIBRARY_PATH"] = os.path.abspath(os.path.dirname(ld_linux))
 
