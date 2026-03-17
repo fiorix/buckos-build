@@ -70,13 +70,7 @@ jobs:
           done
           [ "$failed" -eq 0 ]
       - name: Build seed toolchain
-        run: |
-          # Force fresh seed build — DICE in-memory cache on self-hosted
-          # runner serves stale archive missing host-tools.  Clean outputs
-          # then kill daemon to clear both disk and memory state.
-          buck2 clean 2>/dev/null || true
-          buck2 killall 2>/dev/null || true
-          buck2 build //tc/bootstrap:seed-export --out seed-toolchain.tar.zst 2>&1 | tail -5
+        run: buck2 build //tc/bootstrap:seed-export --out seed-toolchain.tar.zst
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: seed-toolchain
