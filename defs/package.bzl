@@ -407,7 +407,7 @@ def package(
     # a from-source build of those tools even though the seed ships them.
     # Import the package list to build the gate set.
     if _HAS_PREBUILT_SEED and raw_host_deps and type(raw_host_deps) != "Select":
-        _SEED_PROVIDES = {p.split(":")[-1] for p in _SEED_HOST_TOOL_LABELS}
+        _SEED_PROVIDES = {p.split(":")[-1]: True for p in _SEED_HOST_TOOL_LABELS}
         raw_host_deps = [d for d in raw_host_deps if d.split(":")[-1] not in _SEED_PROVIDES]
 
     # In bootstrap/host-tools mode, ALL host tools come from host PATH —
