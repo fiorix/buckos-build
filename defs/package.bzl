@@ -407,19 +407,22 @@ def package(
         })
 
     if _auto_tool_deps:
+        # In bootstrap/host-tools mode, tools come from host PATH —
+        # no exec_deps needed.  Injecting them would create a cycle:
+        # seed-toolchain → host-tools → package → auto_tool_dep
+        # (exec) → seed-toolchain.
+        # In seed mode, the seed's hermetic PATH provides base POSIX
+        # tools but NOT build system tools (meson, perl, python).
+        # Always inject auto_tool_deps — they're built as exec_deps
+        # with the seed's cross-compiler.
         if _SOURCE_MODE:
-            # In bootstrap/host-tools mode, tools come from host PATH —
-            # no exec_deps needed.  Injecting them would create a cycle:
-            # seed-toolchain → host-tools → package → auto_tool_dep
-            # (exec) → seed-toolchain.
             staged_auto_deps = select({
                 "//tc/exec:is-bootstrap-mode": [],
                 "//tc/exec:is-host-tools-mode": [],
                 "DEFAULT": _auto_tool_deps,
             })
         else:
-            # With a prebuilt seed, hermetic PATH provides tools.
-            staged_auto_deps = []
+            staged_auto_deps = _auto_tool_deps
         # staged_auto_deps may be a select — always merge it
         if type(raw_host_deps) == "Select":
             all_host_deps = raw_host_deps + staged_auto_deps
