@@ -158,6 +158,61 @@ install_buck2() {
     echo ""
 }
 
+download_seed() {
+    local seed_path="$SCRIPT_DIR/seed-toolchain.tar.zst"
+
+    if [ -f "$seed_path" ]; then
+        echo "--- Seed toolchain already downloaded ---"
+        echo ""
+        return
+    fi
+
+    echo "--- Downloading seed toolchain ---"
+    local url="https://github.com/buck-os/buckos-build/releases/download/dev/seed-toolchain.tar.zst"
+    if ! curl -fSL -o "$seed_path" "$url"; then
+        echo "Warning: No seed available yet (dev prerelease may not exist)." >&2
+        echo "You can build from source with: buck2 build //tc/bootstrap:seed-export" >&2
+        rm -f "$seed_path"
+        echo ""
+        return 1
+    fi
+    echo "  Downloaded to $seed_path"
+    echo ""
+}
+
+configure_buck2() {
+    if [ -f "$SCRIPT_DIR/.buckconfig.local" ]; then
+        echo "--- .buckconfig.local already exists, skipping ---"
+        echo ""
+        return
+    fi
+
+    echo "--- Generating .buckconfig.local ---"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    buck2 init "$tmpdir" 2>/dev/null
+
+    {
+        if [ -f "$SCRIPT_DIR/seed-toolchain.tar.zst" ]; then
+            echo "[buckos]"
+            echo "  seed_path = seed-toolchain.tar.zst"
+            echo ""
+        fi
+        echo "[cells]"
+        grep 'none = none' "$tmpdir/.buckconfig"
+        echo ""
+        echo "[cell_aliases]"
+        sed -n '/^\[cell_aliases\]/,/^$/p' "$tmpdir/.buckconfig" \
+            | grep -v '^\[' | grep -v '^$' \
+            | grep -v '^\s*config =' | grep -v '^\s*buck =' \
+            | sed 's/= none$/= buckos/'
+    } > "$SCRIPT_DIR/.buckconfig.local"
+
+    rm -rf "$tmpdir"
+    echo "  Created $SCRIPT_DIR/.buckconfig.local"
+    echo ""
+}
+
 verify() {
     echo "--- Verification ---"
     local failed=false
@@ -252,6 +307,8 @@ main() {
     install_packages
     install_uv
     install_buck2
+    download_seed
+    configure_buck2
     verify
 }
 
