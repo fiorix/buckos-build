@@ -307,7 +307,7 @@ main() {
     install_packages
     install_uv
     install_buck2
-    download_seed
+    download_seed || true
     configure_buck2
     verify
 }
