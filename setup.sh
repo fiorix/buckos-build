@@ -50,9 +50,21 @@ define_packages() {
                 base-devel cmake meson ninja python perl m4 autoconf automake
                 libtool pkg-config curl tar xz bzip2 gzip lzip zstd file patch
                 unzip gawk sed grep diffutils findutils coreutils bash gettext
-                texinfo bison flex gperf zlib linux-api-headers git gnupg
-                rust fd ripgrep
+                texinfo bison flex gperf linux-api-headers git gnupg
+                fd ripgrep
             )
+            # zlib-ng-compat (e.g. CachyOS) is a drop-in replacement for zlib
+            if pacman -Qi zlib-ng-compat &>/dev/null; then
+                PACKAGES+=(zlib-ng-compat)
+            else
+                PACKAGES+=(zlib)
+            fi
+            # rustup provides cargo/rustc and conflicts with the rust package
+            if pacman -Qi rustup &>/dev/null; then
+                PACKAGES+=(rustup)
+            else
+                PACKAGES+=(rust)
+            fi
             ;;
         debian)
             PACKAGES=(
