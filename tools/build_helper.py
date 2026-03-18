@@ -899,6 +899,9 @@ def main():
 
     if args.skip_make:
         sanitize_filenames(output_dir)
+        if os.path.exists(_final_output):
+            shutil.rmtree(_final_output)
+        shutil.copytree(output_dir, _final_output, symlinks=True)
         return
 
     jobs = args.jobs or multiprocessing.cpu_count()
