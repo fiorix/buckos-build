@@ -71,7 +71,7 @@ jobs:
           [ "$failed" -eq 0 ]
       - name: Build seed toolchain
         run: buck2 build //tc/bootstrap:seed-export --out seed-toolchain.tar.zst
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: seed-toolchain
           path: seed-toolchain.tar.zst
@@ -98,12 +98,12 @@ jobs:
         run: buck2 build //packages/linux/system:buckos-minimal-iso --out buckos-minimal.iso
       - name: Build KDE ISO
         run: buck2 build //packages/linux/system:buckos-live-installer-kde --out buckos-kde.iso
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: buckos-minimal-iso
           path: buckos-minimal.iso
           compression-level: 0
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: buckos-kde-iso
           path: buckos-kde.iso
@@ -118,7 +118,7 @@ jobs:
       ACTIONS_CACHE_SERVICE_V2: "on"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: seed-toolchain
           path: .
@@ -133,7 +133,8 @@ jobs:
             sudo udevadm trigger --name-match=kvm
           fi
       - name: Restore ccache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        id: ccache-restore
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: .buckos/cache/ccache
           key: seed-test-x86_64-${{ github.run_id }}
@@ -163,6 +164,12 @@ jobs:
         run: |
           targets=$(buck2 uquery 'kind(sh_test, //tests:) - set(//tests:test-seed-isolation //tests:test-kde-iso-boot) - attrfilter(labels, heavy, kind(sh_test, //tests:))' 2>/dev/null)
           buck2 test $targets
+      - name: Save ccache
+        if: always() && steps.ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: .buckos/cache/ccache
+          key: seed-test-x86_64-${{ github.run_id }}
 
   release:
     needs: [test-setup, test, test-seed]
@@ -171,8 +178,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-      - uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           tag_name: dev
           name: Development Build
