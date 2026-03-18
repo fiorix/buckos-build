@@ -9,8 +9,12 @@ import argparse
 import hashlib
 import os
 import shutil
+import struct
+import stat
 import subprocess
 import sys
+import tarfile
+import tempfile
 
 from _env import add_path_args, clean_env, setup_path
 
@@ -49,6 +53,18 @@ def _merge_package(src, rootfs, env):
                 _merge_package(child, rootfs, env)
 
 
+def _move_preserving_symlinks(src, dst):
+    """Move src to dst, preserving symlinks instead of following them."""
+    if os.path.islink(src):
+        target = os.readlink(src)
+        if os.path.islink(dst) or os.path.exists(dst):
+            os.remove(dst)
+        os.symlink(target, dst)
+        os.remove(src)
+    else:
+        shutil.move(src, dst)
+
+
 def _fix_merged_usr(rootfs, dirname):
     """If /dirname is a directory (not symlink), merge into /usr/dirname."""
     path = os.path.join(rootfs, dirname)
@@ -58,11 +74,11 @@ def _fix_merged_usr(rootfs, dirname):
         for item in os.listdir(path):
             src = os.path.join(path, item)
             dst = os.path.join(usr_path, item)
-            if os.path.exists(dst):
+            if os.path.exists(dst) or os.path.islink(dst):
                 if os.path.isdir(src) and not os.path.islink(src):
                     shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
                     continue
-            shutil.move(src, dst)
+            _move_preserving_symlinks(src, dst)
         shutil.rmtree(path)
         os.symlink("usr/" + dirname, path)
 
@@ -105,11 +121,10 @@ def _merge_sbin_into_bin(rootfs):
         for item in os.listdir(usr_sbin):
             src = os.path.join(usr_sbin, item)
             dst = os.path.join(usr_bin, item)
-            if not os.path.exists(dst):
-                shutil.move(src, dst)
-            elif os.path.isfile(src):
-                os.remove(dst)
-                shutil.copy2(src, dst)
+            if not os.path.exists(dst) and not os.path.islink(dst):
+                _move_preserving_symlinks(src, dst)
+            elif os.path.islink(src) or os.path.isfile(src):
+                _move_preserving_symlinks(src, dst)
         shutil.rmtree(usr_sbin)
         os.symlink("bin", usr_sbin)
         print("Merged /usr/sbin into /usr/bin (systemd merged-bin layout)")
@@ -232,11 +247,293 @@ def _merge_acct_entries(rootfs):
                         f.writelines(lines)
 
 
+def _fix_elf_interpreters(rootfs):
+    """Patch ELF interpreter paths from padded build-host paths to /lib64/ld-linux-x86-64.so.2.
+
+    The toolchain pads PT_INTERP with leading slashes followed by the
+    absolute build-host path.  Inside the rootfs these are invalid.
+    Rewrite to the standard /lib64/ld-linux-x86-64.so.2.
+
+    NOTE: x86-64 only (ELF64 LE, ld-linux-x86-64.so.2).  aarch64 would
+    need /lib/ld-linux-aarch64.so.1 and a different ELF class check.
+    """
+    TARGET_INTERP = b"/lib64/ld-linux-x86-64.so.2"
+    patched = 0
+    for dirpath, _, filenames in os.walk(rootfs):
+        for name in filenames:
+            fpath = os.path.join(dirpath, name)
+            if os.path.islink(fpath) or not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, "rb") as f:
+                    data = bytearray(f.read())
+                if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+                    continue
+                # Only patch files with build-host interp paths
+                if b"/home/" not in data and b"buck-out" not in data:
+                    continue
+
+                e_phoff = struct.unpack_from("<Q", data, 32)[0]
+                e_phentsize = struct.unpack_from("<H", data, 54)[0]
+                e_phnum = struct.unpack_from("<H", data, 56)[0]
+
+                modified = False
+                for i in range(e_phnum):
+                    off = e_phoff + i * e_phentsize
+                    p_type = struct.unpack_from("<I", data, off)[0]
+                    if p_type != 3:  # PT_INTERP
+                        continue
+                    p_offset = struct.unpack_from("<Q", data, off + 8)[0]
+                    p_filesz = struct.unpack_from("<Q", data, off + 32)[0]
+                    interp = data[p_offset:p_offset + p_filesz]
+                    if b"ld-linux" not in interp:
+                        continue
+                    if len(TARGET_INTERP) + 1 <= p_filesz:
+                        data[p_offset:p_offset + len(TARGET_INTERP)] = TARGET_INTERP
+                        data[p_offset + len(TARGET_INTERP)] = 0
+                        for j in range(p_offset + len(TARGET_INTERP) + 1,
+                                       p_offset + p_filesz):
+                            data[j] = 0
+                        modified = True
+                    break
+
+                if modified:
+                    orig_mode = os.stat(fpath).st_mode
+                    os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR)
+                    with open(fpath, "wb") as f:
+                        f.write(data)
+                    os.chmod(fpath, orig_mode)
+                    patched += 1
+            except (PermissionError, OSError, struct.error):
+                pass
+
+    if patched:
+        print(f"Patched ELF interpreter in {patched} files")
+
+
+def _sanitize_rpath(rootfs):
+    """Strip build-host paths from ELF RPATH/RUNPATH entries in the rootfs.
+
+    GCC specs inject DT_RPATH with absolute build-machine paths. These are
+    invalid inside the rootfs and cause glibc's ld.so to assert-fail
+    (info[DT_RPATH] == NULL) on itself.  Walk every ELF file and null out
+    build-host RPATH entries, keeping only $ORIGIN-relative paths.
+    """
+    sanitized = 0
+    for dirpath, _, filenames in os.walk(rootfs):
+        for name in filenames:
+            fpath = os.path.join(dirpath, name)
+            if os.path.islink(fpath) or not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, "rb") as f:
+                    data = bytearray(f.read())
+                if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+                    continue
+                if b"/home/" not in data and b"buck-out" not in data:
+                    continue
+
+                e_shoff = struct.unpack_from("<Q", data, 40)[0]
+                e_shentsize = struct.unpack_from("<H", data, 58)[0]
+                e_shnum = struct.unpack_from("<H", data, 60)[0]
+
+                SHT_DYNAMIC = 6
+                SHT_STRTAB = 3
+                dyn_offset = dyn_size = dyn_link = 0
+                strtab_sections = {}
+                for i in range(e_shnum):
+                    sh_off = e_shoff + i * e_shentsize
+                    sh_type = struct.unpack_from("<I", data, sh_off + 4)[0]
+                    sh_offset = struct.unpack_from("<Q", data, sh_off + 24)[0]
+                    sh_size = struct.unpack_from("<Q", data, sh_off + 32)[0]
+                    sh_link = struct.unpack_from("<I", data, sh_off + 40)[0]
+                    if sh_type == SHT_DYNAMIC:
+                        dyn_offset = sh_offset
+                        dyn_size = sh_size
+                        dyn_link = sh_link
+                    if sh_type == SHT_STRTAB:
+                        strtab_sections[i] = sh_offset
+
+                if not dyn_offset or dyn_link not in strtab_sections:
+                    continue
+
+                dynstr_offset = strtab_sections[dyn_link]
+
+                DT_RPATH = 15
+                DT_RUNPATH = 29
+                DT_SONAME = 14
+                modified = False
+                has_valid_rpath = False
+
+                # Detect ld.so by SONAME — it must not have any rpath tag
+                is_ldso = False
+                pos = dyn_offset
+                while pos < dyn_offset + dyn_size:
+                    d_tag = struct.unpack_from("<q", data, pos)[0]
+                    if d_tag == 0:
+                        break
+                    if d_tag == DT_SONAME:
+                        d_val = struct.unpack_from("<Q", data, pos + 8)[0]
+                        so = dynstr_offset + d_val
+                        se = data.find(0, so)
+                        if se > so:
+                            soname = data[so:se].decode("ascii", errors="replace")
+                            if "ld-linux" in soname:
+                                is_ldso = True
+                    pos += 16
+
+                pos = dyn_offset
+                while pos < dyn_offset + dyn_size:
+                    d_tag = struct.unpack_from("<q", data, pos)[0]
+                    d_val = struct.unpack_from("<Q", data, pos + 8)[0]
+                    if d_tag == 0:  # DT_NULL
+                        break
+                    if d_tag in (DT_RPATH, DT_RUNPATH):
+                        str_off = dynstr_offset + d_val
+                        str_end = data.find(0, str_off)
+                        if str_end < 0:
+                            pos += 16
+                            continue
+                        rpath = data[str_off:str_end].decode("ascii", errors="replace")
+                        parts = rpath.split(":")
+                        clean = [p for p in parts
+                                 if p and "/home/" not in p and "buck-out" not in p]
+                        new_rpath = ":".join(clean)
+                        new_bytes = new_rpath.encode("ascii")
+                        old_len = str_end - str_off
+                        if len(new_bytes) <= old_len:
+                            data[str_off:str_off + len(new_bytes)] = new_bytes
+                            for j in range(len(new_bytes), old_len):
+                                data[str_off + j] = 0
+                            modified = True
+                        # Track which entries have empty vs non-empty cleaned paths
+                        if new_rpath:
+                            has_valid_rpath = True
+                    pos += 16
+
+                # Convert DT_RPATH to DT_RUNPATH (glibc asserts DT_RPATH
+                # must not exist).  Remove entries with empty cleaned paths.
+                new_entries = []
+                removed = 0
+                needs_rewrite = False
+                pos = dyn_offset
+                while pos < dyn_offset + dyn_size:
+                    d_tag = struct.unpack_from("<q", data, pos)[0]
+                    d_val = struct.unpack_from("<Q", data, pos + 8)[0]
+                    if d_tag == 0:  # DT_NULL
+                        break
+                    if d_tag in (DT_RPATH, DT_RUNPATH):
+                        if is_ldso or not has_valid_rpath:
+                            # ld.so must not have any rpath tag, or
+                            # no valid paths remain — remove entry entirely
+                            removed += 1
+                            needs_rewrite = True
+                        else:
+                            # Keep entry, but convert DT_RPATH to DT_RUNPATH
+                            if d_tag == DT_RPATH:
+                                needs_rewrite = True
+                            new_entries.append((DT_RUNPATH, d_val))
+                    else:
+                        new_entries.append((d_tag, d_val))
+                    pos += 16
+                if needs_rewrite:
+                    pos = dyn_offset
+                    for tag, val in new_entries:
+                        struct.pack_into("<q", data, pos, tag)
+                        struct.pack_into("<Q", data, pos + 8, val)
+                        pos += 16
+                    # Fill removed slots with DT_NULL
+                    for _ in range(removed):
+                        struct.pack_into("<q", data, pos, 0)
+                        struct.pack_into("<Q", data, pos + 8, 0)
+                        pos += 16
+                    modified = True
+
+                if modified:
+                    orig_mode = os.stat(fpath).st_mode
+                    os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR)
+                    with open(fpath, "wb") as f:
+                        f.write(data)
+                    os.chmod(fpath, orig_mode)
+                    sanitized += 1
+            except (PermissionError, OSError, struct.error):
+                pass
+
+    if sanitized:
+        print(f"Sanitized RPATH in {sanitized} ELF files")
+
+
+# Binaries that require setuid (mode 4755) for correct operation.
+# These lose setuid during unprivileged rootfs assembly.
+_SETUID_BINARIES = frozenset({
+    "usr/bin/chfn",
+    "usr/bin/chsh",
+    "usr/bin/gpasswd",
+    "usr/bin/mount",
+    "usr/bin/newgrp",
+    "usr/bin/passwd",
+    "usr/bin/su",
+    "usr/bin/umount",
+})
+
+# Per-file permission overrides: path -> (mode, uid, gid).
+# dbus-daemon-launch-helper must be setuid root, group messagebus (4750).
+_PERMISSION_OVERRIDES = {
+    "usr/libexec/dbus-daemon-launch-helper": (0o4750, 0, 101),
+}
+
+
+def _create_rootfs_tarball(rootfs, tarball_path):
+    """Pack assembled rootfs as a tarball with correct ownership and permissions.
+
+    All entries are set to root:root (uid/gid 0).  Setuid bits are applied
+    to known binaries, and per-file permission overrides are applied for
+    helpers that need specific ownership (e.g. dbus-daemon-launch-helper).
+    Runs unprivileged using Python's tarfile module.
+    """
+    # Parse /etc/group to resolve group names for uname/gname fields.
+    gid_to_name = {0: "root"}
+    group_file = os.path.join(rootfs, "etc", "group")
+    if os.path.isfile(group_file):
+        with open(group_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    parts = line.split(":")
+                    if len(parts) >= 3:
+                        gid_to_name[int(parts[2])] = parts[0]
+
+    def _fixup(tarinfo):
+        tarinfo.uid = 0
+        tarinfo.gid = 0
+        tarinfo.uname = "root"
+        tarinfo.gname = "root"
+        rel = tarinfo.name
+        if rel.startswith("./"):
+            rel = rel[2:]
+        if rel in _PERMISSION_OVERRIDES and tarinfo.isreg():
+            mode, uid, gid = _PERMISSION_OVERRIDES[rel]
+            tarinfo.mode = mode
+            tarinfo.uid = uid
+            tarinfo.gid = gid
+            tarinfo.gname = gid_to_name.get(gid, str(gid))
+        elif rel in _SETUID_BINARIES and tarinfo.isreg():
+            tarinfo.mode = 0o4755
+        return tarinfo
+
+    with tarfile.open(tarball_path, "w") as tar:
+        tar.add(rootfs, arcname=".", filter=_fixup)
+
+    print(f"Packed rootfs tarball: {tarball_path}")
+
+
 def main():
     _host_path = os.environ.get("PATH", "")
 
     parser = argparse.ArgumentParser(description="Assemble root filesystem")
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-tarball", default=None,
+                        help="Pack the rootfs as a tarball with correct ownership")
     parser.add_argument("--package-dir", action="append", dest="package_dirs",
                         default=[], help="Package directory to merge (repeatable)")
     parser.add_argument("--prefix-list", default=None,
@@ -247,7 +544,18 @@ def main():
     add_path_args(parser)
     args = parser.parse_args()
 
-    rootfs = os.path.abspath(args.output_dir)
+    if not args.output_dir and not args.output_tarball:
+        parser.error("--output-dir or --output-tarball is required")
+
+    _tarball_workdir = None
+    if args.output_tarball:
+        if args.output_dir:
+            rootfs = os.path.abspath(args.output_dir)
+        else:
+            _tarball_workdir = tempfile.mkdtemp(prefix="rootfs-")
+            rootfs = _tarball_workdir
+    else:
+        rootfs = os.path.abspath(args.output_dir)
     env = clean_env()
     setup_path(args, env, _host_path)
 
@@ -274,6 +582,14 @@ def main():
     _fix_merged_usr(rootfs, "bin")
     _fix_merged_usr(rootfs, "sbin")
     _fix_merged_usr(rootfs, "lib")
+    _fix_merged_usr(rootfs, "lib64")
+
+    # Ensure /lib64 exists for ELF interpreter resolution
+    lib64 = os.path.join(rootfs, "lib64")
+    if not os.path.exists(lib64) and not os.path.islink(lib64):
+        usr_lib64 = os.path.join(rootfs, "usr", "lib64")
+        if os.path.isdir(usr_lib64):
+            os.symlink("usr/lib64", lib64)
 
     # Fix var symlinks
     _fix_var_symlinks(rootfs)
@@ -303,6 +619,12 @@ def main():
     # Merge acct entries
     _merge_acct_entries(rootfs)
 
+    # Fix ELF interpreter paths (build-host -> /lib64/ld-linux-x86-64.so.2)
+    _fix_elf_interpreters(rootfs)
+
+    # Strip build-host RPATH from ELF binaries
+    _sanitize_rpath(rootfs)
+
     # Run ldconfig — use the rootfs's own ldconfig (from glibc) since the
     # host ldconfig may not be on the hermetic PATH.
     ld_so_conf = os.path.join(rootfs, "etc", "ld.so.conf")
@@ -319,7 +641,7 @@ def main():
         subprocess.run([_ldconfig, "-r", rootfs], env=env,
                         capture_output=True)
 
-    # Compute manifest if requested
+    # Compute manifest if requested (before tarball packing)
     if args.manifest_output:
         manifest_path = os.path.abspath(args.manifest_output)
         os.makedirs(os.path.dirname(manifest_path) or ".", exist_ok=True)
@@ -332,6 +654,12 @@ def main():
                     h.update(f"{fpath} {st.st_size} {st.st_mtime}\n".encode())
         with open(manifest_path, "w") as f:
             f.write(f"rootfs_hash: {h.hexdigest()}\n")
+
+    # Pack tarball if requested
+    if args.output_tarball:
+        _create_rootfs_tarball(rootfs, os.path.abspath(args.output_tarball))
+        if _tarball_workdir:
+            shutil.rmtree(_tarball_workdir)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,10 @@ load("//defs:tsets.bzl", "RuntimeDepTSet")
 
 def _rootfs_impl(ctx):
     """Assemble a root filesystem from packages."""
-    rootfs_dir = ctx.actions.declare_output(ctx.attrs.name, dir = True)
+    if ctx.attrs.tarball:
+        output = ctx.actions.declare_output(ctx.attrs.name + ".tar")
+    else:
+        output = ctx.actions.declare_output(ctx.attrs.name, dir = True)
 
     # Collect all package outputs (explicit list only, no auto-resolution)
     pkg_dirs = []
@@ -34,7 +37,10 @@ def _rootfs_impl(ctx):
 
     # Build rootfs_helper command
     cmd = cmd_args(ctx.attrs._rootfs_tool[RunInfo])
-    cmd.add("--output-dir", rootfs_dir.as_output())
+    if ctx.attrs.tarball:
+        cmd.add("--output-tarball", output.as_output())
+    else:
+        cmd.add("--output-dir", output.as_output())
     for pkg_dir in pkg_dirs:
         cmd.add("--package-dir", pkg_dir)
     add_flag_file(cmd, "--prefix-list", prefix_list_file)
@@ -56,14 +62,6 @@ def _rootfs_impl(ctx):
     # A manifest action computes content hashes so the rootfs cache key
     # changes when any package content changes.
     manifest_file = ctx.actions.declare_output("package_manifest.txt")
-    manifest_cmd = cmd_args(ctx.attrs._rootfs_tool[RunInfo])
-    manifest_cmd.add("--output-dir", rootfs_dir)
-    manifest_cmd.add("--manifest-output", manifest_file.as_output())
-    for pkg_dir in pkg_dirs:
-        manifest_cmd.add("--package-dir", pkg_dir)
-
-    # Use a lightweight bash command for the manifest since the Python
-    # helper needs to build the full rootfs; compute it separately.
     manifest_script = ctx.actions.write(
         "compute_manifest.sh",
         """\
@@ -105,13 +103,14 @@ shift
         allow_cache_upload = True,
     )
 
-    return [DefaultInfo(default_output = rootfs_dir)]
+    return [DefaultInfo(default_output = output)]
 
 _rootfs_rule = rule(
     impl = _rootfs_impl,
     attrs = {
         "packages": attrs.list(attrs.dep(), default = []),
         "top_packages": attrs.list(attrs.dep(), default = []),
+        "tarball": attrs.bool(default = False),
         "version": attrs.string(default = "1"),
         "labels": attrs.list(attrs.string(), default = []),
         "_rootfs_tool": attrs.default_only(

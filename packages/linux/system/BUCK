@@ -40,7 +40,7 @@ INITTAB
 cat > $OUT/etc/init.d/rcS << 'RCS'
 #!/bin/sh
 # System initialization script
-echo "BuckOs Linux - Booting..."
+echo "BuckOS Linux - Booting..."
 # Mount essential filesystems
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
@@ -161,11 +161,11 @@ nameserver 8.8.4.4
 RESOLV
 # Create os-release
 cat > $OUT/etc/os-release << 'OSRELEASE'
-NAME="BuckOs Linux"
+NAME="BuckOS Linux"
 VERSION="0.1"
 ID=buckos
 ID_LIKE=gentoo
-PRETTY_NAME="BuckOs Linux 0.1"
+PRETTY_NAME="BuckOS Linux 0.1"
 HOME_URL="https://github.com/hodgesds/buckos-build"
 OSRELEASE
 # Create profile
@@ -179,7 +179,7 @@ cd ~
 PROFILE
 # Create issue (login banner)
 cat > $OUT/etc/issue << 'ISSUE'
-BuckOs Linux 0.1
+BuckOS Linux 0.1
 Kernel \\r on \\m
 ISSUE
 """,
@@ -1469,6 +1469,207 @@ rootfs(
         # "//packages/linux/network/openssh:openssh",
         "//packages/linux/network/iproute2:iproute2",
         "//packages/linux/network/dhcpcd:dhcpcd",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# systemd-container-rootfs — for systemd-nspawn / machinectl
+# =============================================================================
+
+# Container-specific configuration (autologin, securetty, PAM, etc.)
+genrule(
+    name = "systemd-container-config-gen",
+    out = "container-config",
+    cmd = """
+mkdir -p $OUT/etc
+mkdir -p $OUT/etc/pam.d
+mkdir -p $OUT/etc/systemd/system/console-getty.service.d
+mkdir -p $OUT/etc/systemd/system/getty@.service.d
+
+# --- os-release ---
+cat > $OUT/etc/os-release << 'OSRELEASE'
+NAME="BuckOS Linux"
+VERSION="0.1"
+ID=buckos
+ID_LIKE=gentoo
+PRETTY_NAME="BuckOS Linux 0.1 (Container)"
+HOME_URL="https://github.com/buck-os/buckos-build"
+OSRELEASE
+
+# --- securetty: allow login on container PTYs ---
+cat > $OUT/etc/securetty << 'SECURETTY'
+# Container pseudo-terminals
+pts/0
+pts/1
+pts/2
+pts/3
+SECURETTY
+
+# --- PAM: passwordless root login for containers ---
+cat > $OUT/etc/pam.d/login << 'PAMLOGIN'
+# Passwordless login for container environments
+auth      sufficient pam_permit.so
+account   sufficient pam_permit.so
+session   sufficient pam_permit.so
+PAMLOGIN
+
+cat > $OUT/etc/pam.d/other << 'PAMOTHER'
+auth      sufficient pam_permit.so
+account   sufficient pam_permit.so
+session   sufficient pam_permit.so
+PAMOTHER
+
+# --- Autologin on console-getty (machinectl login) ---
+cat > $OUT/etc/systemd/system/console-getty.service.d/autologin.conf << 'AUTOLOGIN'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear --keep-baud console 115200,38400,9600 $TERM
+AUTOLOGIN
+
+# --- Autologin on regular getty (machinectl shell / nspawn console) ---
+cat > $OUT/etc/systemd/system/getty@.service.d/autologin.conf << 'GETTYAUTOLOGIN'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+GETTYAUTOLOGIN
+
+# --- Empty root password ---
+mkdir -p $OUT/etc
+# root::19000:0:99999:7:::  (empty password field = passwordless)
+cat > $OUT/etc/shadow << 'SHADOW'
+root::19000:0:99999:7:::
+messagebus:!:19000::::::
+SHADOW
+chmod 640 $OUT/etc/shadow
+
+# --- Basic profile ---
+cat > $OUT/etc/profile << 'PROFILE'
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PS1='\\u@\\h:\\w\\$ '
+export TERM=linux
+PROFILE
+
+# --- /etc/ld.so.conf (ensures ldconfig generates a proper cache) ---
+cat > $OUT/etc/ld.so.conf << 'LDSOCONF'
+/usr/lib64
+/usr/lib64/systemd
+/usr/lib
+LDSOCONF
+
+# --- hostname ---
+echo "buckos-container" > $OUT/etc/hostname
+
+# --- machine-id (empty = systemd generates one at boot) ---
+touch $OUT/etc/machine-id
+
+# --- /etc/passwd ---
+cat > $OUT/etc/passwd << 'PASSWD'
+root:x:0:0:root:/root:/bin/bash
+messagebus:x:101:101:System user for D-Bus message bus daemon:/nonexistent:/usr/sbin/nologin
+PASSWD
+
+# --- /etc/group ---
+cat > $OUT/etc/group << 'GROUP'
+root:x:0:
+messagebus:x:101:
+GROUP
+
+# --- Override default.target to multi-user (headless container) ---
+mkdir -p $OUT/usr/lib/systemd/system
+ln -sf multi-user.target $OUT/usr/lib/systemd/system/default.target
+
+# --- dbus.socket (triggers systemd PID 1 bus connection) ---
+# systemd PID 1 only connects to D-Bus when a unit named "dbus.socket"
+# becomes active.  dbus-daemon (built without --enable-systemd) can't
+# accept sockets from systemd, so dbus.service removes the socket and
+# lets dbus-daemon create its own.  The unit still needs to exist.
+cat > $OUT/usr/lib/systemd/system/dbus.socket << 'DBUSSOCKET'
+[Unit]
+Description=D-Bus System Message Bus Socket
+
+[Socket]
+ListenStream=/run/dbus/system_bus_socket
+
+[Install]
+WantedBy=sockets.target
+DBUSSOCKET
+
+# --- dbus.service (dbus compiled without systemd socket activation) ---
+cat > $OUT/usr/lib/systemd/system/dbus.service << 'DBUSSERVICE'
+[Unit]
+Description=D-Bus System Message Bus
+Documentation=man:dbus-daemon(1)
+Requires=dbus.socket
+After=dbus.socket
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/rm -f /run/dbus/system_bus_socket
+ExecStart=/usr/bin/dbus-daemon --system --nofork
+ExecReload=/usr/bin/dbus-send --print-reply --system --type=method_call --dest=org.freedesktop.DBus / org.freedesktop.DBus.ReloadConfig
+OOMScoreAdjust=-900
+
+[Install]
+WantedBy=multi-user.target
+DBUSSERVICE
+
+# --- Enable dbus.socket and dbus.service via symlinks ---
+mkdir -p $OUT/usr/lib/systemd/system/sockets.target.wants
+ln -sf ../dbus.socket $OUT/usr/lib/systemd/system/sockets.target.wants/dbus.socket
+
+mkdir -p $OUT/usr/lib/systemd/system/multi-user.target.wants
+ln -sf ../dbus.service $OUT/usr/lib/systemd/system/multi-user.target.wants/dbus.service
+""",
+    visibility = ["PUBLIC"],
+)
+
+# Container rootfs: minimal systemd system for nspawn
+rootfs(
+    name = "systemd-container-rootfs",
+    tarball = True,
+    packages = [
+        ":systemd-container-config-gen",
+        # C runtime
+        "//packages/linux/core/glibc:glibc",
+        # Core system
+        "//packages/linux/system/apps/coreutils:coreutils",
+        "//packages/linux/editors/grep:grep",
+        "//packages/linux/core/util-linux:util-linux",
+        "//packages/linux/core/zlib:zlib",
+        # Shell and terminal
+        "//packages/linux/system/terminal/ncurses:ncurses",
+        "//packages/linux/system/terminal/readline:readline",
+        "//packages/linux/core/bash:bash",
+        "//packages/linux/core/less:less",
+        # Compression (systemd runtime deps)
+        "//packages/linux/system/libs/compression/lz4:lz4",
+        "//packages/linux/system/libs/compression/xz:xz",
+        "//packages/linux/system/libs/compression/zstd:zstd",
+        # System utilities
+        "//packages/linux/core/procps-ng:procps-ng",
+        "//packages/linux/core/file:file",
+        # User management
+        "//packages/linux/system/apps/shadow:shadow",
+        # Init system
+        "//packages/linux/system/init/systemd:systemd",
+        # IPC / capabilities / seccomp
+        "//packages/linux/system/libs/ipc/dbus:dbus",
+        "//packages/linux/system/libs/ipc/libcap:libcap",
+        "//packages/linux/system/libs/ipc/libseccomp:libseccomp",
+        # Crypto
+        "//packages/linux/system/libs/crypto/libxcrypt:libxcrypt",
+        # Runtime library deps
+        "//packages/linux/system/libs/compat/libbsd:libbsd",
+        "//packages/linux/system/libs/compat/libmd:libmd",
+        "//packages/linux/system/libs/data/expat:expat",
+        "//packages/linux/system/libs/utility/pcre2:pcre2",
+        # Account packages (dbus messagebus user/group)
+        "//packages/acct-user/messagebus:messagebus",
+        "//packages/acct-group/messagebus:messagebus",
+        # Networking
+        "//packages/linux/system/libs/crypto/openssl:openssl",
+        "//packages/linux/network/iproute2:iproute2",
     ],
     visibility = ["PUBLIC"],
 )
